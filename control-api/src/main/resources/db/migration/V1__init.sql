@@ -1,0 +1,2 @@
+-- control-api schema 'control' — Week 1, your own tables per 01-CONTROL-API.md / spec.
+-- Flyway naming: V<n>__<snake_case>.sql, never edited after commit.
