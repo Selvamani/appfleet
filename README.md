@@ -4,8 +4,13 @@ Application fleet management platform — control plane, deployments, task
 lifecycle, container orchestration, read-model dashboards. Spec-driven build,
 no reference implementation copied.
 
-Specs: see `JobSearch/prep/project/` in the job-search repo (not committed
-here — this repo is the implementation only).
+Specs: [`docs/specs/`](docs/specs/) — start at
+[SPRING-PROJECT.md](docs/specs/SPRING-PROJECT.md), module specs and the
+two-developer split in [`docs/specs/project/`](docs/specs/project/). Copied
+in from the job-search repo (`JobSearch/prep/`); edit there, re-copy here.
+Some links inside these files point up to the wider interview-prep corpus
+(syllabus, checklists) that isn't copied — those won't resolve from here,
+everything Appfleet-specific does.
 
 Modules: common-events, common-security, fleet-audit-starter, control-api,
 identity-service, task-service, node-agent, query-service, client-sdk.
@@ -21,9 +26,8 @@ healthchecks, explicit topic creation — `task.work` at 6 partitions).
 `mvn validate` and `mvn compile` both pass clean from this state.
 
 What's not here: every business rule, every entity, every endpoint. That's
-Week 1+ — see the Two-Developer Split spec and the per-module specs, kept in
-a separate repo (`JobSearch/prep/project/`, not committed here — different
-drive, different repo).
+Week 1+ — see [Two-Developer Split](docs/specs/project/07-TWO-DEVELOPER-SPLIT.md)
+and the per-module specs in `docs/specs/project/`.
 
 ```
 docker compose up -d   # postgres, redis, kafka + topic init
