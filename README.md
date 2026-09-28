@@ -36,3 +36,19 @@ see the per-module specs in `docs/specs/project/`.
 docker compose up -d   # postgres, redis, kafka + topic init
 mvn verify              # currently: nothing to test yet
 ```
+
+## What each module owns
+
+| Module | Port | Owns | Bound by |
+|---|---|---|---|
+| **control-api** | 8081 | Application, Environment, Release, Deployment. The write model — decides *what should be true*. REST, validation, authorization, the transactional outbox. | Request rate, DB writes (connection pool) |
+| **identity-service** | 8082 | User, Role, Permission, Team, tokens. Issues RSA-signed JWTs; every other service verifies locally, no network call back. | CPU — BCrypt is deliberately expensive |
+| **task-service** | 8083 (scaled, no fixed port) | Task, Attempt, retry policy, DLQ. Consumes `deployment.commands`, dispatches work. | Kafka consumer lag / partition count |
+| **node-agent** | 8084 (one per node) | Node, Session, container lifecycle. Pluggable `ContainerRuntime` (Docker / Simulated / Swarm). Leases a node via a Redis fencing token so two agents never drive the same node. | Number of nodes — leases are 1:1 with nodes |
+| **query-service** | 8085 | Read models, history, dashboards. Projects `deployment.events` into a CQRS read model, Redis-cached. Never writes control state. | Read rate, cache hit ratio |
+| **common-events** | — | Event schemas and topic-name constants only — no business logic, no shared entities. The only thing services share. | — |
+| **common-security** | — | Library, not a service. JWT validation filter + `SecurityContext` wiring, imported by every service. | — |
+| **fleet-audit-starter** | — | A hand-written Spring Boot starter + auto-configuration (`@ConditionalOnProperty` / `@ConditionalOnMissingBean`). Proof of understanding Boot's auto-config machinery. | — |
+| **client-sdk** | — | Typed HTTP client for the API, versioned and published. Built in Slice 7. | — |
+
+No service reads another service's Postgres schema. Cross-service communication is Kafka or REST only.
