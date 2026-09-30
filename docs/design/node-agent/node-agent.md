@@ -1,6 +1,6 @@
 # node-agent — design
 
-**Spec:** [04-NODE-AGENT.md](../specs/project/04-NODE-AGENT.md) · Slice **S5** · Port **8084+**, one instance per (simulated) node · Package root `io.appfleet.agent`
+**Spec:** [04-NODE-AGENT.md](../../specs/project/04-NODE-AGENT.md) · Slice **S5** · Port **8084+**, one instance per (simulated) node · Package root `io.appfleet.agent`
 
 This is the working design for the service, written before the code, so the interface shapes get decided once instead of drifting slice by slice. The spec says *what* and *why*; this doc says *how it's actually going to be put together* in this repo.
 

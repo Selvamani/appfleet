@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       POSTGRES_DB: appfleet
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-55432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./infra/init-schemas.sql:/docker-entrypoint-initdb.d/init-schemas.sql:ro
@@ -63,6 +63,20 @@ services:
       /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic task.events --partitions 3 --replication-factor 1 &&
       /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic deployment.events --partitions 3 --replication-factor 1
       "
+
+  # Dev convenience only — not part of `docker compose up`'s default set.
+  # Start explicitly: docker compose --profile dev up -d pgadmin
+  pgadmin:
+    image: dpage/pgadmin4:8
+    profiles: ["dev"]
+    environment:
+      PGADMIN_DEFAULT_EMAIL: dev@appfleet.dev
+      PGADMIN_DEFAULT_PASSWORD: changeme
+    ports:
+      - "5050:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   pgdata:

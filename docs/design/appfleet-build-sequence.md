@@ -39,7 +39,7 @@ any of S0–S4 exists in `control-api`, `identity-service`, `task-service`, or t
 two shared libraries node-agent's own `pom.xml` already depends on
 (`common-events`, `common-security`).
 
-This isn't necessarily wrong — [`node-agent.md`](node-agent.md) states explicitly
+This isn't necessarily wrong — [`node-agent.md`](node-agent/node-agent.md) states explicitly
 that the agent is meant to be developed and tested against `SimulatedRuntime`
 plus hand-published Kafka messages, with no blocking dependency on the rest of
 the build order. The `ContainerRuntime` abstraction itself has no dependency on

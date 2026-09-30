@@ -6,8 +6,12 @@ spring:
     username: ${POSTGRES_USER:appfleet}
     password: ${POSTGRES_PASSWORD:changeme}
   jpa:
+    open-in-view: false
     hibernate:
       ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: control
   flyway:
     schemas: control
     default-schema: control
@@ -15,8 +19,14 @@ spring:
     bootstrap-servers: ${KAFKA_HOST:localhost}:${KAFKA_PORT:9092}
   data:
     redis:
+      repositories:
+        enabled: false
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+
+logging:
+  pattern:
+    correlation: "[%X{correlationId:-}] "
 
 server:
   port: 8081

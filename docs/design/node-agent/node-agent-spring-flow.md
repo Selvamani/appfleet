@@ -1,7 +1,7 @@
 # node-agent — Spring Boot wiring and runtime flow
 
 Companion to [node-agent.md](node-agent.md) (class-by-class design) and the spec
-[04-NODE-AGENT.md](../specs/project/04-NODE-AGENT.md). That doc says what each class is;
+[04-NODE-AGENT.md](../../specs/project/04-NODE-AGENT.md). That doc says what each class is;
 this doc says how Spring actually assembles them at startup and how a request/message
 moves through the assembled graph. Written against the current tree (`node-agent-phase-0`),
 so it calls out what's implemented vs. still a stub from the spec.

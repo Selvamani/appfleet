@@ -1,0 +1,8 @@
+appfleet:
+  environment: local
+  audit:
+    enabled: true
+
+logging:
+  level:
+    io.appfleet: DEBUG
