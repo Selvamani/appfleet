@@ -1,2 +1,6 @@
 appfleet:
   environment: prod
+
+springdoc:
+  swagger-ui:
+    enabled: false

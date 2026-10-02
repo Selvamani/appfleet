@@ -13,7 +13,8 @@ public class TemporaryOpenSecurityConfig {
     @Bean
     SecurityFilterChain temporaryOpenChain(HttpSecurity http) throws Exception {
         http.authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/**", "/actuator/health", "/actuator/info").permitAll()
+                .requestMatchers("/api/**", "/actuator/health", "/actuator/info",
+                        "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                 .anyRequest().denyAll())
             .csrf(AbstractHttpConfigurer::disable).sessionManagement(s-> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
         return http.build();

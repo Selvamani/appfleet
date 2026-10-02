@@ -9,6 +9,7 @@ import io.appfleet.control.idempotency.IdempotencyKeyReusedException;
 import io.appfleet.control.idempotency.InvalidIdempotencyKeyException;
 import io.appfleet.control.idempotency.RequestInProgressException;
 import io.appfleet.control.ratelimit.RateLimitedException;
+import io.appfleet.control.web.openapi.ProblemKind;
 import jakarta.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -96,23 +97,22 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(IllegalTransitionException.class)
     ResponseEntity<ProblemDetail> illegalTransition(IllegalTransitionException ex, WebRequest req) {
-        return problem(HttpStatus.CONFLICT, "illegal-transition", "Illegal state transition", ex.getMessage(), req);
+        return problem(ProblemKind.ILLEGAL_TRANSITION, ex.getMessage(), req);
     }
 
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
     ResponseEntity<ProblemDetail> optimisticLock(ObjectOptimisticLockingFailureException ex, WebRequest req) {
-        return problem(HttpStatus.CONFLICT, "concurrent-modification", "Concurrent modification",
-                "The resource was changed by another request. Re-read it and retry if still appropriate.", req);
+        return problem(ProblemKind.CONCURRENT_MODIFICATION, "The resource was changed by another request. Re-read it and retry if still appropriate.", req);
     }
 
     @ExceptionHandler(NotFoundException.class)
     ResponseEntity<ProblemDetail> notFound(NotFoundException ex, WebRequest req) {
-        return problem(HttpStatus.NOT_FOUND, "not-found", "Not found", ex.getMessage(), req);
+        return problem(ProblemKind.NOT_FOUND, ex.getMessage(), req);
     }
 
     @ExceptionHandler(DeploymentValidationException.class)
     ResponseEntity<ProblemDetail> unprocessable(DeploymentValidationException ex, WebRequest req) {
-        return problem(HttpStatus.UNPROCESSABLE_ENTITY, "unprocessable", "Unprocessable request", ex.getMessage(), req);
+        return problem(ProblemKind.UNPROCESSABLE, ex.getMessage(), req);
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
@@ -121,13 +121,12 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         if (detail == null) {
             return unexpected(ex, req);              // NOT NULL, FK, unknown unique: a bug, not a client conflict
         }
-        return problem(HttpStatus.CONFLICT, "conflict", "Conflict", detail, req);
+        return problem(ProblemKind.CONFLICT, detail, req);
     }
 
     @ExceptionHandler(jakarta.validation.ConstraintViolationException.class)
     ResponseEntity<ProblemDetail> constraintViolation(jakarta.validation.ConstraintViolationException ex, WebRequest req) {
-        ResponseEntity<ProblemDetail> response = problem(HttpStatus.BAD_REQUEST, "validation-failed",
-                "Validation failed", "One or more parameters are invalid.", req);
+        ResponseEntity<ProblemDetail> response = problem(ProblemKind.VALIDATION_FAILED, "One or more parameters are invalid.", req);
         response.getBody().setProperty("errors", ex.getConstraintViolations().stream()
                 .map(v -> Map.of("field", lastNode(v.getPropertyPath()), "message", v.getMessage()))
                 .toList());
@@ -137,39 +136,34 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(Exception.class)
     ResponseEntity<ProblemDetail> unexpected(Exception ex, WebRequest req) {
         log.error("Unhandled exception", ex);
-        return problem(HttpStatus.INTERNAL_SERVER_ERROR, "internal-error", "Internal server error",
-                "An unexpected error occurred.", req);
+        return problem(ProblemKind.INTERNAL_ERROR, "An unexpected error occurred.", req);
     }
 
     @ExceptionHandler(InvalidCursorException.class)
     ResponseEntity<ProblemDetail> invalidCursor(InvalidCursorException ex, WebRequest req) {
-        ResponseEntity<ProblemDetail> response = problem(HttpStatus.BAD_REQUEST, "validation-failed",
-                "Validation failed", "One or more parameters are invalid.", req);
+        ResponseEntity<ProblemDetail> response = problem(ProblemKind.VALIDATION_FAILED, "One or more parameters are invalid.", req);
         response.getBody().setProperty("errors", List.of(Map.of("field", "cursor", "message", "Cursor is not valid.")));
         return response;
     }
 
     @ExceptionHandler(UnprocessableRequestException.class)
     ResponseEntity<ProblemDetail> unprocessableRequest(UnprocessableRequestException ex, WebRequest req) {
-        return problem(HttpStatus.UNPROCESSABLE_ENTITY, "unprocessable", "Unprocessable request", ex.getMessage(), req);
+        return problem(ProblemKind.UNPROCESSABLE, ex.getMessage(), req);
     }
 
     @ExceptionHandler(RollbackAlreadyRequestedException.class)
     ResponseEntity<ProblemDetail> rollbackAlreadyRequested(RollbackAlreadyRequestedException ex, WebRequest req) {
-        return problem(HttpStatus.CONFLICT, "conflict", "Conflict",
-                "A rollback is already pending for this deployment.", req);
+        return problem(ProblemKind.CONFLICT, "A rollback is already pending for this deployment.", req);
     }
 
     @ExceptionHandler(IdempotencyKeyReusedException.class)
     ResponseEntity<ProblemDetail> idempotencyKeyReused(IdempotencyKeyReusedException ex, WebRequest req) {
-        return problem(HttpStatus.UNPROCESSABLE_ENTITY, "idempotency-key-reused", "Idempotency key reused",
-                "This Idempotency-Key was already used with a different request body. Use a new key for a different request.", req);
+        return problem(ProblemKind.IDEMPOTENCY_KEY_REUSED, "This Idempotency-Key was already used with a different request body. Use a new key for a different request.", req);
     }
 
     @ExceptionHandler(RequestInProgressException.class)
     ResponseEntity<ProblemDetail> requestInProgress(RequestInProgressException ex, WebRequest req) {
-        ResponseEntity<ProblemDetail> response = problem(HttpStatus.CONFLICT, "request-in-progress", "Request in progress",
-                "A request with this Idempotency-Key is still being processed. Retry shortly to get its result.", req);
+        ResponseEntity<ProblemDetail> response = problem(ProblemKind.REQUEST_IN_PROGRESS, "A request with this Idempotency-Key is still being processed. Retry shortly to get its result.", req);
         return ResponseEntity.status(response.getStatusCode())
                 .header(HttpHeaders.RETRY_AFTER, "1")
                 .body(response.getBody());
@@ -177,8 +171,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(InvalidIdempotencyKeyException.class)
     ResponseEntity<ProblemDetail> invalidIdempotencyKey(InvalidIdempotencyKeyException ex, WebRequest req) {
-        ResponseEntity<ProblemDetail> response = problem(HttpStatus.BAD_REQUEST, "validation-failed",
-                "Validation failed", "One or more parameters are invalid.", req);
+        ResponseEntity<ProblemDetail> response = problem(ProblemKind.VALIDATION_FAILED, "One or more parameters are invalid.", req);
         response.getBody().setProperty("errors", List.of(Map.of("field", "Idempotency-Key",
                 "message", "Must be 1 to 255 printable ASCII characters, without spaces.")));
         return response;
@@ -187,8 +180,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(RedisConnectionFailureException.class)
     ResponseEntity<ProblemDetail> backingServiceUnavailable(RedisConnectionFailureException ex, WebRequest req) {
         log.warn("Redis unavailable: {}", ex.getMessage());
-        ResponseEntity<ProblemDetail> response = problem(HttpStatus.SERVICE_UNAVAILABLE, "service-unavailable",
-                "Service unavailable", "A required backing service is unavailable. Retry later.", req);
+        ResponseEntity<ProblemDetail> response = problem(ProblemKind.SERVICE_UNAVAILABLE, "A required backing service is unavailable. Retry later.", req);
         return ResponseEntity.status(response.getStatusCode())
                 .header(HttpHeaders.RETRY_AFTER, "5")
                 .body(response.getBody());
@@ -196,8 +188,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(InvalidHeaderException.class)
     ResponseEntity<ProblemDetail> invalidHeader(InvalidHeaderException ex, WebRequest req) {
-        ResponseEntity<ProblemDetail> response = problem(HttpStatus.BAD_REQUEST, "validation-failed",
-                "Validation failed", "One or more parameters are invalid.", req);
+        ResponseEntity<ProblemDetail> response = problem(ProblemKind.VALIDATION_FAILED, "One or more parameters are invalid.", req);
         response.getBody().setProperty("errors", List.of(Map.of("field", ex.header(), "message", "Must be a UUID.")));
         return response;
     }
@@ -205,8 +196,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(RateLimitedException.class)
     ResponseEntity<ProblemDetail> rateLimited(RateLimitedException ex, WebRequest req) {
         long seconds = Math.max(1, (ex.retryAfter().toMillis() + 999) / 1000);   // round up, never 0
-        ResponseEntity<ProblemDetail> response = problem(HttpStatus.TOO_MANY_REQUESTS, "rate-limited", "Too many requests",
-                "The rate limit for this team is exhausted. Retry after the time given in Retry-After.", req);
+        ResponseEntity<ProblemDetail> response = problem(ProblemKind.RATE_LIMITED, "The rate limit for this team is exhausted. Retry after the time given in Retry-After.", req);
         return ResponseEntity.status(response.getStatusCode())
                 .header(HttpHeaders.RETRY_AFTER, String.valueOf(seconds))
                 .body(response.getBody());
@@ -229,6 +219,9 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(status).body(pd);
     }
 
+    private ResponseEntity<ProblemDetail> problem(ProblemKind kind, String detail, WebRequest request) {
+        return problem(HttpStatus.valueOf(kind.status()), kind.slug(), kind.title(), detail, request);
+    }
 
     private static String lastNode(jakarta.validation.Path path) {
         String last = "";
@@ -250,11 +243,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         if (ex instanceof MethodArgumentNotValidException
                 || ex instanceof HandlerMethodValidationException
                 || ex instanceof TypeMismatchException) {
-            return "validation-failed";
+            return ProblemKind.VALIDATION_FAILED.slug();
         }
         return switch (status.value()) {
-            case 400 -> "malformed-request";
-            case 404 -> "not-found";
+            case 400 -> ProblemKind.MALFORMED_REQUEST.slug();
+            case 404 -> ProblemKind.NOT_FOUND.slug();
             case 405 -> "method-not-allowed";
             case 415 -> "unsupported-media-type";
             default -> "error-" + status.value();

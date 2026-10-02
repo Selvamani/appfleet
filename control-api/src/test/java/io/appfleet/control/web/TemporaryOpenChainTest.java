@@ -60,6 +60,22 @@ class TemporaryOpenChainTest {
     }
 
     @Test
+    void apiDocs_areOpen() throws Exception {
+        assertThat(send("GET", "/v3/api-docs", null).statusCode()).isEqualTo(200);
+        assertThat(send("GET", "/v3/api-docs/api-v1", null).statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void swaggerUi_isOpen() throws Exception {
+        assertThat(send("GET", "/swagger-ui/index.html", null).statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void unknownPathOutsideApi_isStillDenied() throws Exception {
+        assertThat(send("GET", "/some/other/path", null).statusCode()).isEqualTo(403);
+    }
+
+    @Test
     void otherActuatorEndpoints_areNotOpen() throws Exception {
         assertThat(send("GET", "/actuator/env", null).statusCode()).isGreaterThanOrEqualTo(400);
     }
