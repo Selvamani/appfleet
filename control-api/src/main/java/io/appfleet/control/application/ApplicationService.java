@@ -17,29 +17,29 @@ import java.util.UUID;
 @Service
 public class ApplicationService {
 
-    private final ApplicationRepository applicationRespository;
-    private final ReleaseRepository releaseRespository;
+    private final ApplicationRepository applicationRepository;
+    private final ReleaseRepository releaseRepository;
 
     public ApplicationService(ApplicationRepository applicationRepository, ReleaseRepository releaseRespository) {
-        this.applicationRespository = applicationRepository;
-        this.releaseRespository = releaseRespository;
+        this.applicationRepository = applicationRepository;
+        this.releaseRepository = releaseRespository;
     }
 
     @Transactional
     public ApplicationResponse create(CreateApplicationRequest request) {
-        Application application = applicationRespository.save(new Application(request.name(), request.description(), request.ownerTeamId()));
+        Application application = applicationRepository.save(new Application(request.name(), request.description(), request.ownerTeamId()));
         return ApplicationResponse.from(application);
     }
 
     @Transactional(readOnly = true)
     public ApplicationResponse get(UUID id) {
-        return ApplicationResponse.from(applicationRespository.findById(id).orElseThrow(() -> new NotFoundException("Application", id)));
+        return ApplicationResponse.from(applicationRepository.findById(id).orElseThrow(() -> new NotFoundException("Application", id)));
     }
 
     @Transactional(readOnly = true)
     public CursorPage<ApplicationResponse> list(UUID afterId, int limit) {
         Limit fetch = Limit.of(limit+1);
-        List<Application> rows = afterId == null ? applicationRespository.findAllByOrderByIdAsc(fetch) : applicationRespository.findByIdGreaterThanOrderByIdAsc(afterId, fetch);
+        List<Application> rows = afterId == null ? applicationRepository.findAllByOrderByIdAsc(fetch) : applicationRepository.findByIdGreaterThanOrderByIdAsc(afterId, fetch);
 
         boolean hasNext = rows.size() > limit;
         List<Application> page = hasNext ? rows.subList(0, limit) : rows;
@@ -50,14 +50,14 @@ public class ApplicationService {
 
     @Transactional
     public ReleaseResponse createRelease(UUID applicationId, CreateReleaseRequest request) {
-        Application application = applicationRespository.findById(applicationId).orElseThrow(() -> new NotFoundException("Application", applicationId));
-        Release release = releaseRespository.save(new Release(application, request.version(), request.artifactRef(), request.checksum()));
+        Application application = applicationRepository.findById(applicationId).orElseThrow(() -> new NotFoundException("Application", applicationId));
+        Release release = releaseRepository.save(new Release(application, request.version(), request.artifactRef(), request.checksum()));
         return ReleaseResponse.from(release);
     }
 
     @Transactional(readOnly = true)
     public ReleaseResponse getRelease(UUID applicationId, UUID releaseId) {
-        Release release = releaseRespository.findByIdAndApplication_Id(releaseId, applicationId).orElseThrow(() -> new NotFoundException("Release", releaseId));
+        Release release = releaseRepository.findByIdAndApplication_Id(releaseId, applicationId).orElseThrow(() -> new NotFoundException("Release", releaseId));
         return ReleaseResponse.from(release);
     }
 }

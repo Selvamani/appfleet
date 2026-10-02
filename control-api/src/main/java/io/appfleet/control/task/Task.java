@@ -5,6 +5,7 @@ import io.appfleet.control.deployment.Deployment;
 import jakarta.persistence.*;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -12,6 +13,10 @@ import java.util.UUID;
 @Entity
 @Table(name = "task")
 public class Task {
+
+    public static final String DEPLOY = "DEPLOY";
+    public static final String ROLLBACK = "ROLLBACK";
+
     @Id
     private UUID id;
 
@@ -42,8 +47,10 @@ public class Task {
         this.deployment = deployment;
         this.taskType = taskType;
         this.status = TaskStatus.PENDING;
-        this.createdAt = Instant.now();
-        this.updatedAt = Instant.now();
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        this.createdAt = now;
+        this.updatedAt = now;
+
     }
 
     public UUID getId() {

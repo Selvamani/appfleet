@@ -1,26 +1,54 @@
 package io.appfleet.control.deployment;
 
 import io.appfleet.control.application.Application;
+import io.appfleet.control.application.ApplicationRepository;
 import io.appfleet.control.application.Release;
+import io.appfleet.control.application.ReleaseRepository;
+import io.appfleet.control.application.web.ApplicationResponse;
 import io.appfleet.control.audit.AuditEvent;
 import io.appfleet.control.audit.AuditEventRecorder;
-import io.appfleet.control.audit.AuditEventRepository;
+import io.appfleet.control.common.NotFoundException;
+import io.appfleet.control.common.UnprocessableRequestException;
+import io.appfleet.control.deployment.web.CreateDeploymentRequest;
+import io.appfleet.control.deployment.web.DeploymentAccepted;
+import io.appfleet.control.deployment.web.DeploymentResponse;
+import io.appfleet.control.deployment.web.RollbackAccepted;
 import io.appfleet.control.environment.Environment;
+import io.appfleet.control.environment.EnvironmentRepository;
+import io.appfleet.control.task.Task;
+import io.appfleet.control.task.TaskRepository;
+import io.appfleet.control.task.TaskStatus;
+import io.appfleet.control.web.CursorCodec;
+import io.appfleet.control.web.CursorPage;
+import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
 @Service
 public class DeploymentService {
 
+    private static final Set<TaskStatus> OPEN_TASK_STATUSES = EnumSet.of(TaskStatus.PENDING, TaskStatus.RUNNING);
+
     private final DeploymentRepository deploymentRepository;
     private final AuditEventRecorder auditEventRecorder;
+    private final ApplicationRepository applicationRepository;
+    private final ReleaseRepository releaseRepository;
+    private final EnvironmentRepository environmentRepository;
+    private final TaskRepository taskRepository;
 
-    public DeploymentService(DeploymentRepository deploymentRepository, AuditEventRecorder auditEventRecorder) {
+    public DeploymentService(DeploymentRepository deploymentRepository, AuditEventRecorder auditEventRecorder, ApplicationRepository applicationRepository, ReleaseRepository releaseRepository, EnvironmentRepository environmentRepository, TaskRepository taskRepository) {
         this.deploymentRepository = deploymentRepository;
         this.auditEventRecorder = auditEventRecorder;
+        this.applicationRepository = applicationRepository;
+        this.releaseRepository = releaseRepository;
+        this.environmentRepository = environmentRepository;
+        this.taskRepository = taskRepository;
     }
 
     @Transactional
@@ -69,4 +97,45 @@ public class DeploymentService {
                 .map(deployment -> new DeploymentSummary(deployment.getId(), deployment.getStatus(), deployment.getTasks().size()))
                 .toList();
     }
+
+    @Transactional
+    public DeploymentAccepted requestDeployment(CreateDeploymentRequest request, String actor) {
+        Application application = applicationRepository.findById(request.applicationId())
+                .orElseThrow(() ->  new UnprocessableRequestException("Application " + request.applicationId() + " does not exist."));
+        Release release = releaseRepository.findByIdAndApplication_Id(request.releaseId(), request.applicationId())
+                .orElseThrow(() -> new UnprocessableRequestException("Release " + request.releaseId() + " does not exist for application " + request.applicationId() + "."));
+        Environment environment = environmentRepository.findByName(request.environment())
+                .orElseThrow(() -> new UnprocessableRequestException("Environment '" + request.environment() + "' does not exist."));
+        Deployment deployment = new Deployment(application, release, environment);
+        deploymentRepository.saveAndFlush(deployment);
+        Task task = taskRepository.save(new Task(deployment, Task.DEPLOY));
+        auditEventRecorder.record(new AuditEvent(actor, "DEPLOYMENT_REQUESTED", "deployment", deployment.getId(), null));
+        return new DeploymentAccepted(deployment.getId(), task.getId(), deployment.getStatus());
+    }
+
+    @Transactional
+    public RollbackAccepted requestRollback(UUID deploymentId, String actor) {
+        Deployment deployment = deploymentRepository.findLockedById(deploymentId).orElseThrow(() -> new NotFoundException("Deployment", deploymentId));
+
+        if(!deployment.getStatus().canTransitionTo(DeploymentState.ROLLED_BACK)) {
+            throw new IllegalTransitionException("Illegal transition from " + deployment.getStatus() + " to " + DeploymentState.ROLLED_BACK);
+        }
+
+        if(taskRepository.existsByDeployment_IdAndTaskTypeAndStatusIn(deploymentId, Task.ROLLBACK, OPEN_TASK_STATUSES)) {
+            throw new RollbackAlreadyRequestedException(deploymentId);
+        }
+
+        Task task = taskRepository.save(new Task(deployment, Task.ROLLBACK));
+        auditEventRecorder.record(new AuditEvent(actor, "ROLLBACK_REQUESTED", "deployment", deployment.getId(), null));
+        return new RollbackAccepted(deployment.getId(), task.getId());
+    }
+
+    @Transactional(readOnly = true)
+    public DeploymentResponse get(UUID id) {
+        Deployment deployment = deploymentRepository.findDetailById(id).orElseThrow(() -> new NotFoundException("Deployment", id));
+        return DeploymentResponse.from(deployment);
+    }
+
+
+
 }

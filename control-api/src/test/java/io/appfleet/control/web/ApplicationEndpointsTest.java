@@ -1,51 +1,23 @@
 package io.appfleet.control.web;
 
-import org.hamcrest.MatcherAssert;
-import org.hamcrest.Matchers;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.*;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.startsWith;
-
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest(properties = "management.health.redis.enabled=false")
-@AutoConfigureMockMvc
-@ActiveProfiles("test")
-@Testcontainers
-public class ApplicationEndpointsTest {
-
-    @Container
-    @ServiceConnection
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
-
-    @Autowired
-    private MockMvc mockMvc;
+public class ApplicationEndpointsTest extends WebIntegrationTest {
 
     private static final String URL = "/api/v1/applications";
 
     private static final String GOOD_SUM = "sha256:" + "a".repeat(64);
-
-    @Test
-    void apiPath_reachesMvc_andReturnsOurProblemShape() throws Exception {
-        mockMvc.perform(get("/api/v1/nope"))
-                .andExpect(status().isNotFound());
-    }
 
     private static String appJson(String name, UUID owner) {
         return """
@@ -68,6 +40,12 @@ public class ApplicationEndpointsTest {
                         .content(appJson(uniqueName(), UUID.randomUUID())))
                 .andExpect(status().isCreated()).andReturn();
         return com.jayway.jsonpath.JsonPath.read(r.getResponse().getContentAsString(), "$.id");
+    }
+
+    @Test
+    void apiPath_reachesMvc_andReturnsOurProblemShape() throws Exception {
+        mockMvc.perform(get("/api/v1/nope"))
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -124,10 +102,11 @@ public class ApplicationEndpointsTest {
     }
 
     @Test
-    void getApplication_returns400_andMalformedRequestCheck() throws Exception {
+    void getApplication_returns400_whenIdNotUuid() throws Exception {
         mockMvc.perform(get(URL + "/test1").contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.type").value("urn:appfleet:problem:malformed-request"));
+                .andExpect(jsonPath("$.type").value("urn:appfleet:problem:validation-failed"))
+                .andExpect(jsonPath("$.errors[?(@.field=='id')]").exists());
     }
 
     @Test
@@ -205,11 +184,11 @@ public class ApplicationEndpointsTest {
             Future<Integer> f1 = pool.submit(call);
             Future<Integer> f2 = pool.submit(call);
             List<Integer> statuses = List.of(f1.get(10, TimeUnit.SECONDS), f2.get(10, TimeUnit.SECONDS));
-            MatcherAssert.assertThat(statuses.stream().sorted().toList(),
-                    Matchers.equalTo(List.of(201, 409)));
+            assertThat(statuses).containsExactlyInAnyOrder(201, 409);
         } finally {
             pool.shutdownNow();
         }
-
     }
+
+
 }

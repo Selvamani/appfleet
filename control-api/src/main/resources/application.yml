@@ -23,6 +23,8 @@ spring:
         enabled: false
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      timeout: 2s
+      connect-timeout: 1s
 
 logging:
   pattern:

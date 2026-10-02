@@ -1,0 +1,1 @@
+CREATE INDEX idx_task_deployment_id ON task (deployment_id, id);

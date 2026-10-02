@@ -71,6 +71,8 @@ ALTER TABLE base_image
 
 ## 1. Seed generator
 
+> **Done in S3.4 (2026-10-01).** The working generator and its cleanup script are designed, tested and measured in [control-api-s3-4-task-history.md](control-api-s3-4-task-history.md) §9 and §12. Two corrections to this section: the weights of 100 to 1 below give the hot applications about 96% of the volume, not ~70%; the generator uses 13 to 1 (69.4% measured). It also assigns task counts per deployment instead of sampling an application per row, and generates UUIDv7 ids in SQL so that `id` order is creation order.
+
 **Lives in:** `infra/seed/seed-tasks.sql` — committed, but never auto-run. You execute it by hand.
 
 **Goal:** 1M+ rows across `task`/`attempt`, with **realistic skew** — a few hot applications generating most of the volume, many quiet ones generating almost none. Uniform random distribution across applications would be the easy version and the wrong one — real systems don't look like that, and a flat distribution wouldn't stress an index the same way a skewed one does (this matters directly for exercise 4).
@@ -181,6 +183,8 @@ Seed a genuine multi-level chain to make this non-trivial — e.g. `debian` → 
 
 ## 4. Performance exercise — seq scan → composite index
 
+> **Done in S3.4 (2026-10-01)** with a different index: `idx_task_deployment_id ON task (deployment_id, id)` in `V4__add_task_deployment_index.sql`, because the task history endpoint pages by an `id` cursor and `(deployment_id, created_at DESC)` cannot serve `id > ?`. With UUIDv7 ids, the same index serves "most recent first" by scanning backwards (`ORDER BY id DESC`). The leftmost-prefix reasoning below still holds: equality column first, then the range and sort column. Measured result for this section's query (newest 20 for one deployment): 20.2 ms before, 0.042 ms after, for a deployment with 570 tasks. The plan before the index was **not** a seq scan but a backward walk of `task_pkey` that discarded 305,271 rows. Full before and after plans and numbers: [control-api-s3-4-task-history.md](control-api-s3-4-task-history.md) §12.
+
 **Lives in:** mixed. The `EXPLAIN ANALYZE` commands (steps 1 and 3) run by hand, nowhere in the repo. The `CREATE INDEX` in step 2 is schema — it goes into the `V2__` migration below (or a follow-up `V3__` if you'd rather add it as its own separately-dated step once the seq scan is actually observed).
 
 **Step 1 — find the seq scan.** The realistic query this table exists to serve: "most recent tasks for a given deployment, most recent first" (e.g. a deployment detail page's task history panel):
@@ -251,8 +255,8 @@ DETAIL: Process ... waits for ShareLock on transaction ...; blocked by process .
 ## Definition of done (these 5 items)
 
 - [ ] `V2__add_task_attempt_and_image_lineage.sql` written and applied
-- [ ] `infra/seed/seed-tasks.sql` written, run once, ≥1M combined `task`+`attempt` rows confirmed (`SELECT count(*) FROM task` / `attempt`), skew confirmed (top 3 applications own the large majority of rows — a quick `GROUP BY application_id` count check)
+- [x] *(done in S3.4: 1,200,101 tasks, 1,416,629 attempts, hot applications 69.4% of spread tasks)* `infra/seed/seed-tasks.sql` written, run once, ≥1M combined `task`+`attempt` rows confirmed (`SELECT count(*) FROM task` / `attempt`), skew confirmed (top 3 applications own the large majority of rows — a quick `GROUP BY application_id` count check)
 - [ ] Window-function query + top-N variant run against seeded data, output sane (spot-check a few applications manually)
 - [ ] `base_image` chain seeded ≥3 levels deep, recursive CTE returns full lineage in correct depth order
-- [ ] Seq scan captured (`EXPLAIN ANALYZE` output saved), index created, leftmost-prefix reasoning written down, re-measured, before/after numbers in `/docs`
+- [x] *(done in S3.4 with `(deployment_id, id)`; the "before" plan was a primary-key walk, not a seq scan)* Seq scan captured (`EXPLAIN ANALYZE` output saved), index created, leftmost-prefix reasoning written down, re-measured, before/after numbers in `/docs`
 - [ ] Deadlock captured (exact error text), lock-ordering fix applied and re-tested clean, note in `/docs`

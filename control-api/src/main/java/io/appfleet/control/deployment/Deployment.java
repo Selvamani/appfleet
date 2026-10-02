@@ -62,8 +62,9 @@ public class Deployment {
         this.environment = environment;
         this.status = DeploymentState.PENDING;
         this.currentStatus = DeploymentState.PENDING;
-        this.createdAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
-        this.updatedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        this.createdAt = now;
+        this.updatedAt = now;
     }
 
     public void transitionTo(DeploymentState target) {
@@ -71,7 +72,7 @@ public class Deployment {
             throw new IllegalTransitionException("Illegal transition from "+ status + " to "+ target);
         }
         this.status =  target;
-        this.updatedAt = Instant.now();
+        this.updatedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
     }
 
     public UUID getId() {

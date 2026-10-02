@@ -79,7 +79,9 @@ Fields on every error body:
 | Illegal state transition (`IllegalStateException` from `Deployment.transitionTo`) | 409 | `illegal-transition` |
 | Optimistic-lock failure (`ObjectOptimisticLockingFailureException`) | 409 | `concurrent-modification` |
 | Unique violation (duplicate application name) or the active-deployment partial index | 409 | `conflict` |
-| In-flight duplicate idempotency key | 409 | `request-in-progress` |
+| In-flight duplicate idempotency key | 409 + `Retry-After` | `request-in-progress` |
+| Idempotency key reused with a different request body (added in S3.5) | 422 | `idempotency-key-reused` |
+| Backing service unreachable, for example Redis for a keyed request (added in S3.5) | 503 + `Retry-After` | `service-unavailable` |
 | Rate limit empty | 429 + `Retry-After` | `rate-limited` |
 
 The 400-versus-422 rule, stated so it can be applied without judgement: **400 means the request could not be understood or does not satisfy its own schema; 422 means the request is fine on its face and the server refuses it on domain grounds.** 409 always means "your request is fine, the current state of the resource conflicts with it". Three different causes share 409, so `type` must distinguish them.
@@ -134,11 +136,11 @@ Shared boilerplate: the Testcontainers block is now in many test classes. S3 add
 
 Each has a recommendation so the answer can be one word.
 
-1. **`Location` for `POST /deployments`.** The spec says `Location: /tasks/{id}`, but the endpoint list has no `GET /tasks/{id}`. A 202 with a `Location` that 404s is a broken contract. Recommendation: add a minimal `GET /api/v1/tasks/{id}` in S3.3 (id, status, deployment id, timestamps). Alternative: point `Location` at the deployment.
-2. **What does `POST /deployments/{id}/rollback` do in S3?** There is no saga yet. Recommendation: validate that a rollback is legal from the current state (only `HEALTHY` or `DEGRADED`; otherwise 409), record a `ROLLBACK` task in `PENDING`, return 202, and **do not** change the deployment's status. The status change belongs to whatever executes the task (S5 and S6). Alternative: transition straight to `ROLLED_BACK`, which is legal from those two states, but that makes the 202 a lie because nothing was actually rolled back.
-3. **Audit actor.** `AuditEvent` needs an actor and there is no caller identity yet. Recommendation: a constant `"system"` now, replaced by the authenticated principal in S4. Alternative: an `X-Actor` header, which is spoofable and would need to be thrown away in S4.
-4. **A real create method.** `POST /deployments` needs a service method that creates the `Deployment` (`PENDING`), a `DEPLOY` `Task` (`PENDING`) and an audit row in one transaction, and returns both ids. Recommendation: a **new** method (say `requestDeployment`) and leave the demonstration methods alone, since their tests document the S2 lessons.
-5. **The parked seed generator.** The page-10,000 benchmark needs 1M+ tasks. Recommendation: un-park the S1 seed generator at the start of S3.4, not before.
+1. **`Location` for `POST /deployments`.** The spec says `Location: /tasks/{id}`, but the endpoint list has no `GET /tasks/{id}`. A 202 with a `Location` that 404s is a broken contract. Recommendation: add a minimal `GET /api/v1/tasks/{id}` in S3.3 (id, status, deployment id, timestamps). Alternative: point `Location` at the deployment. **Answered in S3.3: recommendation taken.**
+2. **What does `POST /deployments/{id}/rollback` do in S3?** There is no saga yet. Recommendation: validate that a rollback is legal from the current state (only `HEALTHY` or `DEGRADED`; otherwise 409), record a `ROLLBACK` task in `PENDING`, return 202, and **do not** change the deployment's status. The status change belongs to whatever executes the task (S5 and S6). Alternative: transition straight to `ROLLED_BACK`, which is legal from those two states, but that makes the 202 a lie because nothing was actually rolled back. **Answered in S3.3: recommendation taken.**
+3. **Audit actor.** `AuditEvent` needs an actor and there is no caller identity yet. Recommendation: a constant `"system"` now, replaced by the authenticated principal in S4. Alternative: an `X-Actor` header, which is spoofable and would need to be thrown away in S4. **Answered in S3.3: recommendation taken.**
+4. **A real create method.** `POST /deployments` needs a service method that creates the `Deployment` (`PENDING`), a `DEPLOY` `Task` (`PENDING`) and an audit row in one transaction, and returns both ids. Recommendation: a **new** method (say `requestDeployment`) and leave the demonstration methods alone, since their tests document the S2 lessons. **Answered in S3.3: recommendation taken (`DeploymentService.requestDeployment`).**
+5. **The parked seed generator.** The page-10,000 benchmark needs 1M+ tasks. Recommendation: un-park the S1 seed generator at the start of S3.4, not before. **Answered in S3.4: recommendation taken; S1 exercise 4 was done in the same step.**
 6. **Hand mapping versus MapStruct.** Recommendation in 3.4 is hand mapping.
 
 ## 6. Definition of done for S3
@@ -146,7 +148,7 @@ Each has a recommendation so the answer can be one word.
 - [ ] S3.1 to S3.7 each have their own design doc and are implemented and green
 - [ ] `ProblemDetail` for every failure, one shape, with a passing shape test per `type`
 - [ ] Every endpoint documented in OpenAPI including error shapes
-- [ ] Two concurrent identical `POST /deployments` with one idempotency key create exactly one deployment
-- [ ] Offset-versus-cursor numbers at page 10,000 recorded in `/docs`
+- [x] Two concurrent identical `POST /deployments` with one idempotency key create exactly one deployment ([control-api-s3-5-idempotency.md](control-api-s3-5-idempotency.md) §11.3)
+- [x] Offset-versus-cursor numbers at page 10,000 recorded in `/docs` ([control-api-s3-4-task-history.md](control-api-s3-4-task-history.md) §12)
 - [ ] Rate limiter returns 429 with `Retry-After`
 - [ ] `mvn verify` green with Testcontainers Postgres and Redis

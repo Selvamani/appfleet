@@ -2,7 +2,7 @@
 
 **Spec:** [01-CONTROL-API.md §S3](../../specs/project/01-CONTROL-API.md) — `POST /api/v1/applications` (201 + `Location`), `GET /api/v1/applications?cursor=&limit=`, `POST /api/v1/applications/{id}/releases`; *"Bean Validation on every request DTO; DTOs are records; MapStruct or hand mapping — never entities out of controllers."* · Slice **S3.2** of [control-api-s3-rest.md](control-api-s3-rest.md)
 
-Companion: [control-api-s3-1-foundations.md](control-api-s3-1-foundations.md) (the error shape, the advice, the correlation filter and the temporary open security chain this step stands on), [control-api-s3-rest.md](control-api-s3-rest.md) (sections 3.3 to 3.5 fix the layout, the DTO rule and the cursor design). **Status: designed, not yet implemented.**
+Companion: [control-api-s3-1-foundations.md](control-api-s3-1-foundations.md) (the error shape, the advice, the correlation filter and the temporary open security chain this step stands on), [control-api-s3-rest.md](control-api-s3-rest.md) (sections 3.3 to 3.5 fix the layout, the DTO rule and the cursor design). **Status: implemented 2026-09-30; closed and revalidated 2026-10-02. Results in section 10.**
 
 These are the first real endpoints. They are plain create-and-list on two simple entities with no state machine, so they exercise the whole stack (JSON, validation, `Location`, conflicts, cursor) on the easy case before deployments add state.
 
@@ -191,13 +191,55 @@ Row 13 is the one that justifies "no pre-check": it uses two threads and a barri
 - OpenAPI annotations (S3.7).
 - Rate limiting and idempotency keys (S3.5 and S3.6). `POST /applications` gets no `Idempotency-Key`: the spec puts it on `POST /deployments`, and the unique name already makes a retry safe (the second attempt gets a 409, not a duplicate).
 
+## 10. Results
+
+This section was written when S3.2 was closed, two days after the code was finished. Everything under "Revalidated" was re-run on 2026-10-02 against the current code; everything under "Recorded at the time" comes from the S3.2 session itself and was not repeated.
+
+### 10.1 Revalidated (2026-10-02)
+
+- **Tests:** `ApplicationEndpointsTest` 13 of 13 (including `concurrentCreate_sameName_oneCreated_oneConflict`), `ApplicationPaginationTest` 9 of 9 (including `insertBetweenPages_noDuplicate_noSkip`, `invalidLimit_returns400` for `0`, `101` and `abc`, `limitZero_returns400_withLimitField`, `garbageCursor_returns400`), `CursorCodecTest` 2 of 2. Full suite `mvn verify`: 188 tests, 2 skipped by design (it was 121 when S3.2 finished; later steps added the rest).
+- **MockMvc runs the real security chain.** With `org.springframework.security.web.FilterChainProxy` at `DEBUG`, the three classes logged 66 `Securing GET|POST /api/v1/applications…` lines, for example `Securing POST /api/v1/applications` followed by `Secured POST /api/v1/applications`. Every MockMvc request passes through Spring Security's filter chain, so the `HttpClient` fallback of section 7 was not needed.
+- **The `merge` `select` from section 4.1**, in the SQL log, under one request's correlation id: `select a1_0.id,… from control.application a1_0 where a1_0.id=?`, then `insert into control.application …`. `Application` has an assigned UUID and no `@Version`, so `save` merges.
+- **Code state:**
+  - `ApiExceptionHandler` overrides `handleHandlerMethodValidationException` and `handleTypeMismatch` and handles `InvalidCursorException`.
+  - `Application` and `Release` truncate `createdAt` to microseconds.
+  - `Location` is built as `"/api/v1/applications/" + id` and `"/api/v1/applications/" + id + "/releases/" + releaseId`.
+  - `ApplicationController` now lives in `io.appfleet.control.application.web` (moved during S3.3; it was in the parent package when S3.2 finished).
+
+### 10.2 Recorded at the time (2026-09-30, not repeated)
+
+- The fail-first security check of section 8 step 1: with `TemporaryOpenSecurityConfig` disabled, a MockMvc request returned 401.
+- Bugs the tests caught while writing the code:
+
+  | What | Cause |
+  |---|---|
+  | `Location` header missing a slash | String concatenation without `/` before the id |
+  | `GET` by id unreachable | `@GetMapping` without `/{id}` |
+  | `createdAt` in the 201 body differed from the later `GET` | 100 ns precision in memory against microseconds in Postgres; fixed with `truncatedTo(ChronoUnit.MICROS)` in the constructors (S3.3 applied the same fix to `Task` and `Deployment.transitionTo`) |
+
+- `TypeMismatchException` handling changed `/applications/not-a-uuid` from `malformed-request` to `validation-failed` with `errors[].field == "id"`.
+- The `limit` test failing before the `HandlerMethodValidationException` handler existed: recorded then; it cannot be re-observed now that the handler exists.
+
+### 10.3 Found while closing, and fixed (2026-10-02)
+
+- **`CursorCodecTest.decode` asserted nothing.** It read `assertThat(CursorCodec.decode(CursorCodec.encode(id)).equals(id));`: `assertThat(boolean)` without `.isTrue()` passes whatever the boolean is, so the round trip was untested at unit level. The endpoint tests (`fiveApps_limit2_threePages`) exercised it, which is why nothing broke. Fixed with `.isTrue()`.
+- **`CursorCodecTest` did not test "valid base64, not a UUID"** (section 7 asked for it). Added `decodeFail_validBase64ButNotACanonicalUuid`: base64url of `not-a-uuid`, and of `1-1-1-1-1`. The second matters: Java 25's `UUID.fromString` accepts it (as `00000001-0001-0001-0001-000000000001`, checked in `jshell`), so only the codec's canonical-form comparison rejects it, and this test is what covers that branch.
+- **`ApplicationEndpointsTest`'s concurrent test used Hamcrest `MatcherAssert.assertThat`.** Replaced with AssertJ, `assertThat(statuses).containsExactlyInAnyOrder(201, 409)`, per the project convention (AssertJ for assertions, Hamcrest only inside MockMvc matchers).
+- **`@GetMapping("{id}/releases/{releaseId}")` had no leading slash.** It worked (Spring joins it to the class-level mapping) but was the only mapping without one. Fixed.
+
+After the fixes: `CursorCodecTest` 3 tests, `mvn verify` 189 tests, 2 skipped by design, green.
+
+### 10.4 Changed by later steps
+
+- **`ApplicationPaginationTest` cleanup** was changed in S3.3 from `deleteAllInBatch` to `TRUNCATE application CASCADE`, because the shared test database now holds deployments that reference releases.
+
 ## Definition of done
 
-- [ ] Section 8, step 1: MockMvc applies the real security chain (or the `HttpClient` fallback is chosen)
-- [ ] `ApplicationService`, DTOs, `ApplicationController` (five endpoints) implemented
-- [ ] `ApplicationEndpointsTest` cases 1 to 13 green, including the concurrent create
-- [ ] `HandlerMethodValidationException` handler added, proven by a failing-then-passing `limit` test
-- [ ] `CursorCodec` and `CursorCodecTest`
-- [ ] `ApplicationPaginationTest` green, including the insert-between-pages case
-- [ ] The `merge` `select` from `save` observed in the SQL log and recorded in a Results section
-- [ ] `mvn verify` green
+- [x] Section 8, step 1: MockMvc applies the real security chain (401 recorded at the time; the chain confirmed again in the security debug log, section 10.1)
+- [x] `ApplicationService`, DTOs, `ApplicationController` (five endpoints) implemented
+- [x] `ApplicationEndpointsTest` cases 1 to 13 green, including the concurrent create
+- [x] `HandlerMethodValidationException` handler added, proven by a failing-then-passing `limit` test (failing state recorded at the time only)
+- [x] `CursorCodec` and `CursorCodecTest` (round-trip assertion and the non-UUID case fixed while closing, section 10.3)
+- [x] `ApplicationPaginationTest` green, including the insert-between-pages case
+- [x] The `merge` `select` from `save` observed in the SQL log and recorded in a Results section
+- [x] `mvn verify` green

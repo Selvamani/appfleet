@@ -1,9 +1,6 @@
-package io.appfleet.control.application;
+package io.appfleet.control.application.web;
 
-import io.appfleet.control.application.web.ApplicationResponse;
-import io.appfleet.control.application.web.CreateApplicationRequest;
-import io.appfleet.control.application.web.CreateReleaseRequest;
-import io.appfleet.control.application.web.ReleaseResponse;
+import io.appfleet.control.application.ApplicationService;
 import io.appfleet.control.web.CursorCodec;
 import io.appfleet.control.web.CursorPage;
 import jakarta.validation.Valid;
@@ -48,7 +45,7 @@ public class ApplicationController {
         return ResponseEntity.created(URI.create("/api/v1/applications/"+id+"/releases/"+created.id())).body(created);
     }
 
-    @GetMapping("{id}/releases/{releaseId}")
+    @GetMapping("/{id}/releases/{releaseId}")
     public ReleaseResponse getRelease(@PathVariable UUID id, @PathVariable UUID releaseId) {
         return service.getRelease(id, releaseId);
     }

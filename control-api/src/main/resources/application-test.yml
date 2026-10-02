@@ -1,2 +1,4 @@
 appfleet:
   environment: test
+  rate-limit:
+    enabled: false

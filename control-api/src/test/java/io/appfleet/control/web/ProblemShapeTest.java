@@ -1,9 +1,16 @@
 package io.appfleet.control.web;
 
 import io.appfleet.control.common.NotFoundException;
+import io.appfleet.control.common.UnprocessableRequestException;
 import io.appfleet.control.deployment.Deployment;
 import io.appfleet.control.deployment.DeploymentValidationException;
 import io.appfleet.control.deployment.IllegalTransitionException;
+import io.appfleet.control.deployment.RollbackAlreadyRequestedException;
+import io.appfleet.control.idempotency.IdempotencyKeyReusedException;
+import io.appfleet.control.idempotency.InvalidIdempotencyKeyException;
+import io.appfleet.control.idempotency.RequestInProgressException;
+import io.appfleet.control.ratelimit.RateLimitInterceptor;
+import io.appfleet.control.ratelimit.RateLimitedException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.junit.jupiter.api.Test;
@@ -14,8 +21,11 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.FilterType;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -23,6 +33,8 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.web.bind.annotation.*;
 
 import java.sql.SQLException;
+import java.time.Duration;
+import java.util.UUID;
 import java.util.stream.Stream;
 
 import static org.hamcrest.Matchers.*;
@@ -32,7 +44,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import static org.assertj.core.api.Assertions.assertThat;
 
-@WebMvcTest(ProblemShapeTest.ProbeController.class)
+@WebMvcTest(value = ProblemShapeTest.ProbeController.class,
+        excludeFilters = @ComponentScan.Filter(type = FilterType.ASSIGNABLE_TYPE,
+        classes = { RateLimitInterceptor.class, WebConfig.class }))
 @Import({ApiExceptionHandler.class, CorrelationIdFilter.class, ProblemShapeTest.ProbeController.class})
 @ActiveProfiles("test")
 public class ProblemShapeTest {
@@ -67,6 +81,48 @@ public class ProblemShapeTest {
             throw new DataIntegrityViolationException("duplicate",
                     new org.hibernate.exception.ConstraintViolationException("dup", new SQLException(), name));
         }
+
+        @GetMapping("/probe/unprocessable-request")
+        void unprocessableRequest() {
+            throw new UnprocessableRequestException("Application x does not exist.");
+        }
+
+        @GetMapping("/probe/rollback-already-requested")
+        void rollbackAlreadyRequested() {
+            throw new RollbackAlreadyRequestedException(UUID.randomUUID());
+        }
+
+        @GetMapping("/probe/idempotency-key-reused")
+        void idempotencyKeyReused() {
+            throw new IdempotencyKeyReusedException();
+        }
+
+        @GetMapping("/probe/request-in-progress")
+        void requestInProgress() {
+            throw new RequestInProgressException();
+        }
+
+        @GetMapping("/probe/redis-down")
+        void redisDown() {
+            throw new RedisConnectionFailureException("Unable to connect to Redis");
+        }
+
+        @GetMapping("/probe/invalid-idempotency-key")
+        void invalidIdempotencyKey() {
+            throw new InvalidIdempotencyKeyException();
+        }
+
+        @GetMapping("/probe/invalid-cursor")
+        void invalidCursor() { throw new InvalidCursorException(); }
+
+        @GetMapping("/probe/rate-limited")
+        void rateLimited() { throw new RateLimitedException(Duration.ofMillis(1500)); }
+
+        @GetMapping("/probe/invalid-header")
+        void invalidHeader() { throw new InvalidHeaderException("X-Team-Id"); }
+
+        @GetMapping("/probe/rate-limited-zero")
+        void rateLimitedZero() { throw new RateLimitedException(Duration.ZERO); }
 
     }
 
@@ -122,7 +178,13 @@ public class ProblemShapeTest {
                 Arguments.of("/probe/unprocessable", 422, "unprocessable"),
                 Arguments.of("/probe/unique/uq_application_name", 409, "conflict"),
                 Arguments.of("/probe/unique/uq_something_unknown", 500, "internal-error"),
-                Arguments.of("/probe/boom", 500, "internal-error"));
+                Arguments.of("/probe/boom", 500, "internal-error"),
+                Arguments.of("/probe/unprocessable-request", 422, "unprocessable"),
+                Arguments.of("/probe/rollback-already-requested", 409, "conflict"),
+                Arguments.of("/probe/idempotency-key-reused", 422, "idempotency-key-reused"),
+                Arguments.of("/probe/request-in-progress", 409, "request-in-progress"),
+                Arguments.of("/probe/redis-down", 503, "service-unavailable"),
+                Arguments.of("/probe/rate-limited", 429, "rate-limited"));
     }
 
     @ParameterizedTest(name = "{0} -> {1} {2}")
@@ -166,6 +228,43 @@ public class ProblemShapeTest {
     void mdcIsClearedAfterRequest() throws Exception {
         mockMvc.perform(get("/probe/not-found").header("X-Correlation-Id", "abc-123"));
         assertThat(MDC.get("correlationId")).isNull();
+    }
+
+    static Stream<Arguments> retryAfterRows() {
+        return Stream.of(
+                Arguments.of("/probe/request-in-progress", "1"),
+                Arguments.of("/probe/redis-down", "5"),
+                Arguments.of("/probe/rate-limited", "2"),
+                Arguments.of("/probe/rate-limited-zero", "1"));
+    }
+
+    @ParameterizedTest(name = "{0} -> Retry-After {1}")
+    @MethodSource("retryAfterRows")
+    void retryableErrors_carryRetryAfter(String path, String seconds) throws Exception {
+        mockMvc.perform(get(path)).andExpect(header().string("Retry-After", seconds));
+    }
+
+    @Test
+    void invalidIdempotencyKey_is400_withHeaderAsField() throws Exception {
+        ResultActions result = mockMvc.perform(get("/probe/invalid-idempotency-key"));
+        assertProblem(result, 400, "validation-failed", "/probe/invalid-idempotency-key");
+        result.andExpect(jsonPath("$.errors[0].field").value("Idempotency-Key"));
+    }
+
+    @Test
+    void invalidCursor_is400_withCursorAsField() throws Exception {
+        ResultActions result = mockMvc.perform(get("/probe/invalid-cursor"));
+        assertProblem(result, 400, "validation-failed", "/probe/invalid-cursor");
+        result.andExpect(jsonPath("$.errors[0].field").value("cursor"))
+                .andExpect(jsonPath("$.errors[0].message").isNotEmpty());
+    }
+
+    @Test
+    void invalidHeader_is400_withHeaderAsField() throws Exception {
+        ResultActions result = mockMvc.perform(get("/probe/invalid-header"));
+        assertProblem(result, 400, "validation-failed", "/probe/invalid-header");
+        result.andExpect(jsonPath("$.errors[0].field").value("X-Team-Id"))
+                .andExpect(jsonPath("$.errors[0].message").value("Must be a UUID."));
     }
 
 }

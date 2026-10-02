@@ -1,0 +1,1080 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Appfleet UX Preview</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<!--
+  Appfleet UX preview: low-fidelity, clickable wireframe of the main user journeys.
+  Not a visual design and not the planned UI. Sample data only. Open this file in a browser; no build step.
+  Screens and states trace to docs/specs/project/06-BUSINESS-REQUIREMENTS.md (FR/NFR ids in the design notes).
+-->
+<style>
+*{box-sizing:border-box}
+:root{
+  --bg:#f5f5f2;--surface:#fff;--ink:#1c1c1c;--ink2:#3d3d3d;--muted:#5c5c5c;--line:#d6d6d1;--line2:#ecece7;
+  --accent:#1f4fbf;--accent-ink:#163a8c;--accent-bg:#eef2fc;--sel:#e7edfb;
+  --bad:#b2470c;--bad-ink:#8f3a09;--bad-bg:#fdf1e8;--solid:#2b2b2b;--hover:#f0f0ec;
+  --pv:#fff6cc;--pv-line:#b8901a;--pv-ink:#4d3b00;
+  --side:clamp(220px,12vw,300px);
+  --gutter:clamp(16px,1.6vw,48px);
+  --gap:clamp(16px,1.1vw,28px);
+}
+/* Type scale: 14px base, 15px from Full HD, 16px from 2K. Sizes below are rem, so text, controls and spacing grow together. */
+html{font-size:14px}
+@media (min-width:1800px){html{font-size:15px}}
+@media (min-width:2400px){html{font-size:16px}}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans',system-ui,sans-serif;font-size:1rem;line-height:1.45}
+a{color:var(--accent)}a:hover{color:var(--accent-ink)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+h1,h2,h3,p{margin:0}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace;font-size:.9rem}
+.strong{font-weight:600}
+.small{font-size:.9rem;color:var(--muted)}
+
+/* Preview controls: not part of the product UI */
+.preview-bar{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:.5rem 1.25rem;padding:.55rem var(--gutter);background:var(--pv);border-bottom:1px dashed var(--pv-line);color:var(--pv-ink);font-size:.93rem}
+.preview-bar label{display:inline-flex;align-items:center;gap:.4rem}
+.preview-bar select{height:2.3rem;font:inherit;border:1px solid var(--pv-line);border-radius:6px;background:#fff;color:var(--ink);padding:0 .4rem}
+.pv-tag{font-weight:700;letter-spacing:.05em;text-transform:uppercase;font-size:.82rem}
+.design-note{border:1px dashed var(--pv-line);background:var(--pv);color:var(--pv-ink);border-radius:8px;padding:.7rem 1rem;font-size:.93rem}
+
+/* App shell */
+.shell{display:grid;grid-template-columns:var(--side) minmax(0,1fr);min-height:calc(100vh - 3.5rem)}
+.side{background:var(--surface);border-right:1px solid var(--line);padding:1.25rem .85rem;display:flex;flex-direction:column;gap:2px}
+.brand{font-weight:700;font-size:1.3rem;letter-spacing:-.01em;padding:.4rem .85rem 1.25rem}
+.brand span{color:var(--accent)}
+.nav{display:flex;align-items:center;min-height:2.85rem;padding:0 .85rem;border-radius:6px;color:#2b2b2b;text-decoration:none}
+.nav:hover{background:#efefeb;color:#111}
+.nav[aria-current="page"]{background:var(--sel);color:var(--accent-ink);font-weight:600}
+.content{padding:1.4rem var(--gutter) 3.5rem;display:flex;flex-direction:column;gap:var(--gap);min-width:0;width:100%}
+.top{display:flex;flex-wrap:wrap;gap:.85rem;align-items:center;justify-content:space-between}
+.search{flex:1 1 17rem;max-width:32rem;height:2.85rem;border:1px solid #c6c6c0;border-radius:6px;padding:0 .85rem;font:inherit;background:#fff;color:inherit}
+.who{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
+#screen{display:flex;flex-direction:column;gap:var(--gap)}
+
+/* Building blocks */
+.pill{display:inline-flex;align-items:center;min-height:2rem;padding:0 .7rem;border:1px solid var(--line);border-radius:1rem;background:#fff;font-size:.9rem;color:var(--ink2);white-space:nowrap}
+.head{display:flex;flex-wrap:wrap;gap:.85rem 1.4rem;align-items:flex-end;justify-content:space-between}
+.crumb{font-size:.9rem;color:var(--muted);margin-bottom:.3rem}
+.h1{font-size:1.72rem;font-weight:600;letter-spacing:-.01em;display:flex;flex-wrap:wrap;align-items:center;gap:.7rem}
+.h1-sm{font-size:1.43rem}
+.h2{font-size:1.07rem;font-weight:600}
+.sub{color:var(--muted);margin-top:.3rem}
+.big{font-size:1.43rem}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1.15rem 1.3rem;min-width:0}
+.cardhead{display:flex;flex-wrap:wrap;gap:.5rem 1.15rem;align-items:center;justify-content:space-between;margin-bottom:.85rem}
+.stack{display:flex;flex-direction:column;gap:1rem}
+.actions{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
+.spread{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;justify-content:space-between}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));gap:.85rem}
+.tile-val{font-size:2rem;font-weight:600;margin:.15rem 0}
+.two{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(20rem,1fr);gap:var(--gap);align-items:start}
+.split{display:grid;grid-template-columns:minmax(260px,24rem) minmax(0,1fr);gap:var(--gap);align-items:start}
+.three{display:grid;grid-template-columns:repeat(auto-fit,minmax(17rem,1fr));gap:.85rem}
+.wide-2{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--gap);align-items:start}
+.limit{width:100%;max-width:1680px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;min-height:2.85rem;padding:0 1.15rem;border-radius:6px;border:1px solid #b5b5ae;background:#fff;color:var(--ink);font:inherit;font-weight:500;cursor:pointer;text-decoration:none;white-space:nowrap}
+.btn:hover{background:var(--hover);color:var(--ink)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.pri:hover{background:var(--accent-ink);color:#fff}
+.btn.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.btn.sm{min-height:2.3rem;padding:0 .85rem;font-size:.93rem}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.chip{display:inline-flex;align-items:center;gap:.4rem;height:1.72rem;padding:0 .65rem;border-radius:.86rem;font-size:.82rem;font-weight:600;letter-spacing:.03em;border:1px solid #8f8f88;color:var(--ink2);background:#fff;white-space:nowrap}
+.chip::before{content:'';width:.5rem;height:.5rem;border-radius:50%;background:currentColor}
+.st-run{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
+.st-ok{border-color:var(--solid);background:var(--solid);color:#fff}
+.st-bad{border-color:var(--bad);color:var(--bad-ink);background:var(--bad-bg)}
+.st-off{border-style:dashed;color:#4a4a4a;background:#fff}
+.rows{overflow-x:auto}
+.row{display:grid;grid-template-columns:var(--cols);gap:.85rem;align-items:center;padding:.7rem .4rem;border-bottom:1px solid var(--line2);min-width:var(--minw,680px)}
+.row.th{font-size:.86rem;font-weight:600;color:var(--muted);padding-top:.15rem;padding-bottom:.55rem;border-bottom-color:var(--line)}
+.rowbtn{width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line2);font:inherit;color:inherit;cursor:pointer;border-radius:0}
+.rowbtn:hover{background:#f6f6f3}
+.rowbtn[aria-pressed="true"]{background:var(--sel)}
+.cell{display:flex;flex-direction:column;gap:.3rem;align-items:flex-start}
+.cellline{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
+.note{border:1px solid var(--line);border-radius:6px;background:#fafaf8;padding:.7rem .85rem;font-size:.93rem;color:var(--ink2)}
+.warn{border:1px solid #d9a07a;background:#fdf3ec;color:#6e2f08;border-radius:6px;padding:.85rem 1rem}
+.warn a{color:#6e2f08}
+.okbox{border:1px solid #9fb4e6;background:var(--accent-bg);color:var(--accent-ink);border-radius:6px;padding:.85rem 1rem}
+.okbox .small{color:var(--accent-ink)}
+.field{width:100%;height:2.85rem;border:1px solid #c6c6c0;border-radius:6px;padding:0 .7rem;font:inherit;background:#fff;color:inherit}
+.lbl{display:block;font-size:.9rem;font-weight:600;color:var(--ink2);margin-bottom:.3rem}
+.fs{border:0;padding:0;margin:0;display:flex;flex-direction:column;gap:.5rem}
+.opt{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem 1rem;padding:.7rem .85rem;border:1px solid var(--line);border-radius:6px;cursor:pointer;min-height:3.15rem}
+.opt:has(input:checked){border:2px solid var(--accent);background:var(--accent-bg)}
+.envs{display:flex;flex-wrap:wrap;gap:.5rem}
+.envbtn{flex:1 1 11.5rem;display:flex;flex-direction:column;align-items:flex-start;gap:.4rem;padding:.85rem;border:1px solid #c6c6c0;border-radius:8px;background:#fff;font:inherit;color:inherit;cursor:pointer;text-align:left;min-height:3.15rem}
+.envbtn[aria-pressed="true"]{border:2px solid var(--accent);background:var(--accent-bg)}
+.steps{display:flex;flex-wrap:wrap;gap:.5rem;list-style:none;margin:0;padding:0}
+.step{flex:1 1 10rem;border:1px solid var(--line);border-radius:6px;padding:.7rem .85rem;background:#fff;min-height:4.3rem}
+.step b{display:block;font-size:.9rem;letter-spacing:.03em}
+.step span{font-size:.9rem;color:var(--muted)}
+.step-done{background:#f0f0ec}
+.step-cur{border:2px solid var(--accent);background:var(--accent-bg)}
+.step-cur b{color:var(--accent-ink)}
+.step-fail{border:2px solid var(--bad);background:var(--bad-bg)}
+.step-fail b{color:var(--bad-ink)}
+.step-todo{border-style:dashed}
+.dl{display:grid;grid-template-columns:minmax(7rem,9rem) minmax(0,1fr);gap:.5rem .85rem;margin:0;font-size:.93rem}
+.dl dt{color:var(--muted)}
+.dl dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.timeline{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.timeline li{display:grid;grid-template-columns:5rem minmax(0,1fr) auto;gap:.85rem;align-items:center;padding:.55rem 0;border-bottom:1px solid var(--line2)}
+.attempt{display:grid;grid-template-columns:5.7rem 7.9rem minmax(0,1fr);gap:.7rem;align-items:center;padding:.55rem 0;border-top:1px solid var(--line2)}
+.box{border:1px solid #e3e3de;border-radius:6px;padding:.85rem;display:flex;flex-direction:column;gap:.4rem}
+.catalog{display:grid;grid-template-columns:repeat(auto-fill,minmax(16.5rem,1fr));gap:.85rem}
+.empty{padding:2rem;display:flex;flex-direction:column;gap:.85rem;align-items:flex-start}
+.walk{list-style:none;margin:0;padding:0 0 0 1rem;border-left:2px solid var(--line);display:flex;flex-direction:column;gap:.7rem}
+
+/* Full HD and wider: paired sections sit side by side (each .wide-2 sets its own split in --wide) */
+@media (min-width:1800px){
+  .wide-2{grid-template-columns:var(--wide,repeat(2,minmax(0,1fr)))}
+}
+@media (max-width:860px){.two,.split{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:760px){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  .side{flex-direction:row;align-items:center;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);padding:.5rem .85rem}
+  .brand{padding:0 .85rem 0 0}
+  .nav{white-space:nowrap}
+  .content{padding:1.15rem}
+}
+</style>
+</head>
+<body>
+
+<div class="preview-bar" role="region" aria-label="Preview controls">
+  <span class="pv-tag">UX preview</span>
+  <label>Screen
+    <select id="jump" aria-label="Jump to screen"></select>
+  </label>
+  <label>Preview as
+    <select id="role">
+      <option value="VIEWER">VIEWER — application developer</option>
+      <option value="DEPLOYER" selected>DEPLOYER — release manager</option>
+      <option value="OPERATOR">OPERATOR — platform operator</option>
+      <option value="ADMIN">ADMIN — security / IT admin</option>
+      <option value="AUDITOR">AUDITOR — VIEWER + audit read</option>
+    </select>
+  </label>
+  <span id="ctx"></span>
+  <label><input type="checkbox" id="notes" checked> Design notes</label>
+  <span>Wireframe only · sample data</span>
+</div>
+
+<div class="shell">
+  <nav class="side" id="nav" aria-label="Main"></nav>
+  <div class="content">
+    <div class="top">
+      <input class="search" type="search" aria-label="Search applications, deployments or correlation id" placeholder="Search apps, deployments, correlation id">
+      <div class="who"><span class="pill" id="scope"></span><span class="pill" id="who"></span></div>
+    </div>
+    <aside class="design-note" id="note"></aside>
+    <main id="screen"></main>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------- helpers ----------
+  const $ = s => document.querySelector(s);
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const CHIP = {
+    PENDING: 'st-run', VALIDATING: 'st-run', DEPLOYING: 'st-run', RUNNING: 'st-run', STARTING: 'st-run', REBUILDING: 'st-run', QUEUED: 'st-run',
+    HEALTHY: 'st-ok', SUCCEEDED: 'st-ok', ACCEPTED: 'st-ok', SUCCESS: 'st-ok', ACTIVE: 'st-ok', HEARTBEATING: 'st-ok',
+    DEGRADED: 'st-bad', FAILED: 'st-bad', DENIED: 'st-bad', STALE: 'st-bad',
+    ROLLED_BACK: 'st-off', DRAINING: 'st-off', DEACTIVATED: 'st-off', REVOKED: 'st-off'
+  };
+  const chip = (s, label) => `<span class="chip ${CHIP[s] || 'st-off'}">${esc(label || s)}</span>`;
+  const tile = (label, value, detail) => `<div class="card"><div class="small">${esc(label)}</div><div class="tile-val">${esc(value)}</div><div class="small">${esc(detail)}</div></div>`;
+  const live = s => ['PENDING', 'VALIDATING', 'DEPLOYING'].includes(s);
+
+  // ---------- preview state ----------
+  const state = {
+    role: 'DEPLOYER',
+    notes: true,
+    dash: { filter: 'all' },
+    app: { form: false, registered: false, rb: {} },
+    deploy: { env: 'prod', rel: '2.4.0', result: '' },
+    dep: { app: 'billing-api', rel: '2.4.0', env: 'staging', state: 'DEPLOYING', by: 'you', rb: false },
+    sess: {
+      next: 3, q: '',
+      list: [
+        { id: 1, tool: 'Java IDE (JDK 21)', ver: '2026.2-r3', status: 'RUNNING', detail: 'Idle 4 min · ends after 30 min idle' },
+        { id: 2, tool: 'Python data notebook', ver: '4.2-r1', status: 'RUNNING', detail: 'Active now' }
+      ]
+    },
+    fleet: { drained: {}, replayed: {}, rebuilt: {}, reclaimed: false },
+    access: { sel: 'm.okafor', revoked: {}, deact: {}, rotated: {} },
+    audit: { sel: 0 }
+  };
+
+  const allTeams = () => ['OPERATOR', 'ADMIN', 'AUDITOR'].includes(state.role);
+  const canDeploy = () => ['DEPLOYER', 'OPERATOR', 'ADMIN'].includes(state.role);
+  const seen = team => allTeams() || team === 'Payments';
+
+  // ---------- sample data ----------
+  const SCREENS = [
+    ['dashboard', '1 · Dashboard'], ['application', '2 · Application detail'], ['deploy', '3 · New deployment'],
+    ['deployment', '4 · Deployment timeline'], ['sessions', '5 · Tool sessions'], ['fleet', '6 · Fleet & DLQ'],
+    ['access', '7 · Access'], ['audit', '8 · Audit trail']
+  ];
+  const NAV = [
+    ['dashboard', 'Dashboard', '*'], ['application', 'Applications', '*'], ['sessions', 'Tool sessions', '*'],
+    ['fleet', 'Fleet & DLQ', 'OPERATOR ADMIN'], ['access', 'Access', 'ADMIN'], ['audit', 'Audit trail', 'AUDITOR OPERATOR ADMIN']
+  ];
+  const PARENT = { deploy: 'application', deployment: 'dashboard' };
+  const NOTES = {
+    dashboard: 'Dashboard · FR-1.3, FR-5.1, FR-5.3. Answers "what is running where?" in one view, filtered to the teams the viewer may see. The asOf pill makes read-model staleness visible instead of silent. Try Preview as VIEWER (no New deployment) and OPERATOR (all teams). Row "Open" carries that deployment into screen 4.',
+    application: 'Application detail · FR-1.1, FR-1.2, FR-2.5. One card per environment. Releases are immutable once registered; the form states the version and sha256 checksum rules up front. Roll back is a first-class action, disabled with a reason while a deployment is in flight.',
+    deploy: 'New deployment · FR-2.1 to FR-2.3. Choose staging to see the one-active-deployment conflict (409) before and after submit. Choose dev or prod and submit to see the 202 Accepted state. Retry safety (Idempotency-Key) is explained in user words, not HTTP.',
+    deployment: 'Deployment timeline · FR-2.4 to FR-2.6. The FSM as a stepper; use "Deployment state" in the preview bar to see every state. Attempts show a transient retry versus a permanent dead-letter. Roll back only from HEALTHY or DEGRADED; a second request is blocked.',
+    sessions: 'Tool sessions · FR-4.1 to FR-4.4, NFR-5. Catalogue → Launch → Starting → Running. Warm-pool tools are labelled faster than cold start (this preview shortens start times). Idle reclaim is stated before it happens.',
+    fleet: 'Fleet & DLQ · OPERATOR, FR-2.6, NFR-9. Lease holder, fencing token and heartbeat per node; drain; stuck-task reclaim; DLQ replay; projection lag and rebuild. Other roles get not-found (404, not 403).',
+    access: 'Access · ADMIN, FR-3.1 to FR-3.5, NFR-6. Grants are per team. Revoke states the under-5-minute propagation. Users are deactivated, never deleted. Service accounts carry scoped, rotatable keys.',
+    audit: 'Audit trail · FR-6.1 to FR-6.3. Filter by actor, action, object or correlation id. Selecting a row walks every service that handled the same correlation id. Append-only; records survive failed actions.'
+  };
+
+  const DEPS = [
+    ['14:01:12', 'billing-api', 'Payments', '2.4.0', 'staging', 'DEPLOYING', 'you'],
+    ['13:58:40', 'search-indexer', 'Search', '1.9.3', 'prod', 'PENDING', 's.iyer'],
+    ['13:52:05', 'checkout-web', 'Payments', '5.12.0', 'dev', 'DEPLOYING', 'm.okafor'],
+    ['13:20:44', 'ledger-worker', 'Payments', '0.18.2', 'prod', 'DEGRADED', 'you'],
+    ['12:47:10', 'query-gateway', 'Search', '3.1.0', 'staging', 'FAILED', 's.iyer'],
+    ['11:30:02', 'billing-api', 'Payments', '2.3.1', 'prod', 'HEALTHY', 'you'],
+    ['10:12:55', 'checkout-web', 'Payments', '5.11.4', 'prod', 'ROLLED_BACK', 'm.okafor'],
+    ['09:02:31', 'billing-api', 'Payments', '2.4.0', 'dev', 'HEALTHY', 'you']
+  ];
+  const MATRIX = [
+    ['billing-api', 'Payments', [['2.4.0', 'HEALTHY'], ['2.4.0', 'DEPLOYING'], ['2.3.1', 'HEALTHY']]],
+    ['checkout-web', 'Payments', [['5.12.0', 'DEPLOYING'], ['5.11.4', 'HEALTHY'], ['5.11.3', 'HEALTHY', '5.11.4 rolled back']]],
+    ['ledger-worker', 'Payments', [['0.18.2', 'HEALTHY'], ['0.18.2', 'HEALTHY'], ['0.18.2', 'DEGRADED']]],
+    ['search-indexer', 'Search', [['1.9.3', 'HEALTHY'], ['1.9.3', 'HEALTHY'], ['1.9.2', 'HEALTHY', '1.9.3 PENDING']]],
+    ['query-gateway', 'Search', [['3.1.0', 'HEALTHY'], ['3.0.4', 'HEALTHY', '3.1.0 FAILED'], ['3.0.4', 'HEALTHY']]]
+  ];
+  const group = s => live(s) ? 'flight' : (s === 'DEGRADED' || s === 'FAILED') ? 'attn' : 'done';
+
+  const CURRENT = { dev: ['2.4.0', 'HEALTHY'], staging: ['2.4.0', 'DEPLOYING'], prod: ['2.3.1', 'HEALTHY'] };
+  const RELEASES = [
+    ['2.4.0', 'registry.internal/payments/billing-api:2.4.0', 'sha256:9f2c…e41a', 'Oct 1, 16:20', 'dev, staging'],
+    ['2.3.1', 'registry.internal/payments/billing-api:2.3.1', 'sha256:41be…07d3', 'Sep 24, 10:05', 'prod'],
+    ['2.3.0', 'registry.internal/payments/billing-api:2.3.0', 'sha256:c08a…9b12', 'Sep 12, 15:41', '—'],
+    ['2.2.7', 'registry.internal/payments/billing-api:2.2.7', 'sha256:77e0…2f6c', 'Aug 30, 09:18', '—']
+  ];
+  const NODE_OF = { dev: ['dev-node-01', 1203], staging: ['stg-node-02', 4417], prod: ['prd-node-01', 9920] };
+  const PREV = { 'billing-api': '2.3.1', 'checkout-web': '5.11.3', 'ledger-worker': '0.18.1', 'search-indexer': '1.9.2', 'query-gateway': '3.0.4' };
+
+  const CATALOG = [
+    ['java-ide', 'Java IDE (JDK 21)', '2026.2-r3', 'base/desktop:24.04', true],
+    ['notebook', 'Python data notebook', '4.2-r1', 'base/desktop:24.04', true],
+    ['design', 'Design suite', '12.1-r2', 'base/desktop-gpu:24.04', false],
+    ['planning', 'Vendor planning tool', '8.0-r5', 'base/desktop:24.04', false],
+    ['sql', 'SQL workbench', '3.4-r1', 'base/desktop:24.04', true],
+    ['loadtest', 'Load-test console', '1.7-r2', 'base/cli:24.04', false]
+  ];
+
+  const NODES = [
+    ['dev-node-01', 'dev', 'agent-dev-1', 1203, '2 s ago', '3 / 8', 'HEARTBEATING'],
+    ['stg-node-01', 'staging', 'agent-stg-1', 881, '1 s ago', '2 / 8', 'HEARTBEATING'],
+    ['stg-node-02', 'staging', 'agent-stg-2', 4417, '3 s ago', '4 / 8', 'HEARTBEATING'],
+    ['prd-node-01', 'prod', 'agent-prd-1', 9920, '2 s ago', '5 / 8', 'HEARTBEATING'],
+    ['prd-node-02', 'prod', 'agent-prd-2', 9921, '41 s ago', '0 / 8', 'STALE'],
+    ['prd-node-03', 'prod', 'agent-prd-3', 9930, '1 s ago', '0 / 8', 'DRAINING']
+  ];
+  const NODE_LABEL = { HEARTBEATING: 'Heartbeating', STALE: 'Stale heartbeat', DRAINING: 'Draining' };
+  const DLQ = [
+    ['dlq1', '12:48:02', 'query-gateway 3.1.0 → staging', 'DEPLOY', 'Image pull denied (permanent)', 3],
+    ['dlq2', '11:05:40', 'search-indexer 1.9.1 → dev', 'DEPLOY', 'Release checksum mismatch (permanent)', 1],
+    ['dlq3', '09:14:22', 'Session reap · prd-node-02', 'REAP', 'Container not found', 3]
+  ];
+  const PROJ = [['deployment_summary', '1.8 s'], ['fleet_view', '0.9 s'], ['task_timeline', '2.4 s'], ['application_history', '3.1 s']];
+
+  const USERS = [
+    { id: 'you', grants: [['Payments', 'DEPLOYER', 'admin.t', 'Mar 3']], login: 'Today 08:55 UTC from 10.2.8.31', sec: 'No failed sign-ins' },
+    { id: 'm.okafor', grants: [['Payments', 'DEPLOYER', 'admin.t', 'Jan 12'], ['Search', 'VIEWER', 'admin.t', 'Jun 2']], login: 'Today 07:13 UTC from 10.2.4.17', sec: '3 failed sign-ins at 07:12; locked 15 min, then cleared' },
+    { id: 's.iyer', grants: [['Search', 'DEPLOYER', 'admin.t', 'Feb 20']], login: 'Today 13:58 UTC from 10.2.5.40', sec: 'No failed sign-ins' },
+    { id: 'p.novak', grants: [['All teams', 'OPERATOR', 'admin.t', 'Nov 4']], login: 'Today 12:49 UTC from 10.2.6.12', sec: 'No failed sign-ins' },
+    { id: 'audit.k', grants: [['Payments', 'VIEWER', 'admin.t', 'Jul 7'], ['Search', 'VIEWER', 'admin.t', 'Jul 7'], ['All teams', 'audit:read', 'admin.t', 'Jul 7']], login: 'Sep 30 16:02 UTC from 10.2.9.3', sec: 'No failed sign-ins' },
+    { id: 'r.lee', grants: [], login: 'Last sign-in Aug 14', sec: 'Deactivated Aug 15 by admin.t', inactive: true }
+  ];
+  const PERMS = {
+    VIEWER: ['deployment:read', 'task:read'],
+    DEPLOYER: ['deployment:read', 'task:read', 'deployment:create', 'deployment:rollback'],
+    OPERATOR: ['deployment:read', 'task:read', 'deployment:create', 'deployment:rollback', 'node:drain', 'dlq:replay', 'projection:rebuild'],
+    ADMIN: ['deployment:read', 'task:read', 'deployment:create', 'deployment:rollback', 'node:drain', 'dlq:replay', 'projection:rebuild', 'user:manage'],
+    'audit:read': ['audit:read']
+  };
+  const SERVICE_ACCOUNTS = [
+    ['node-agent', 'task:report · node:lease', 'ak_…3f9e', 'Sep 1', '2 s ago'],
+    ['task-service', 'deployment:read · task:write', 'ak_…71c2', 'Sep 1', '1 s ago'],
+    ['ci-release-bot', 'deployment:create on Search', 'ak_…0d58', 'Aug 20', '13:58']
+  ];
+
+  const EVENTS = [
+    { t: '14:01:12', actor: 'you', action: 'DEPLOYMENT_REQUESTED', obj: 'billing-api 2.4.0 → staging', out: 'ACCEPTED', ip: '10.2.8.31', ua: 'Firefox 131 · Linux', cid: 'c-7f3a91d2',
+      walk: [['14:01:12', 'control-api', 'Deployment requested; replied 202 Accepted; idempotency key stored'], ['14:01:13', 'task-service', 'DEPLOY task created'], ['14:01:13', 'node-agent · stg-node-02 · token 4417', 'Attempt 1 started'], ['14:01:43', 'node-agent · stg-node-02 · token 4417', 'Attempt 1 failed: node timeout (temporary)'], ['14:01:47', 'node-agent · stg-node-02 · token 4417', 'Attempt 2 started']] },
+    { t: '13:47:05', actor: 'm.okafor', action: 'DEPLOYMENT_REQUESTED', obj: 'search-indexer 1.9.3 → prod', out: 'DENIED', ip: '10.2.4.17', ua: 'Chrome 129 · macOS', cid: 'c-51b0e7a4',
+      walk: [['13:47:05', 'identity-service', 'Token checked: DEPLOYER on Search was revoked at 13:40:18'], ['13:47:05', 'control-api', 'No DEPLOYER grant on Search; replied 404 Not Found']] },
+    { t: '13:40:18', actor: 'admin.t', action: 'GRANT_REVOKED', obj: 'm.okafor · DEPLOYER on Search', out: 'SUCCESS', ip: '10.2.1.5', ua: 'Firefox 131 · Windows', cid: 'c-2d19c0f8',
+      walk: [['13:40:18', 'identity-service', 'Grant removed; live tokens denylisted (effective in under 5 min)']] },
+    { t: '12:31:30', actor: 'p.novak', action: 'DLQ_REPLAYED', obj: 'task 0192d1f0 · checkout-web 5.11.2', out: 'SUCCESS', ip: '10.2.6.12', ua: 'Chrome 129 · Linux', cid: 'c-9a6e4b13',
+      walk: [['12:31:30', 'task-service', 'Message moved from task.work.DLT back to task.work'], ['12:31:31', 'node-agent · stg-node-01 · token 881', 'Attempt 4 started'], ['12:32:02', 'node-agent · stg-node-01 · token 881', 'Attempt 4 succeeded']] },
+    { t: '10:12:55', actor: 'm.okafor', action: 'ROLLBACK_REQUESTED', obj: 'checkout-web 5.11.4 · prod', out: 'ACCEPTED', ip: '10.2.4.17', ua: 'Chrome 129 · macOS', cid: 'c-0be3f5a1',
+      walk: [['10:12:55', 'control-api', 'Rollback requested; replied 202 Accepted'], ['10:12:56', 'task-service', 'ROLLBACK task created'], ['10:13:40', 'node-agent · prd-node-01 · token 9920', 'Restored 5.11.3; deployment ROLLED_BACK']] },
+    { t: '07:12:44', actor: 'm.okafor', action: 'LOGIN_FAILED', obj: 'account m.okafor', out: 'FAILED', ip: '203.0.113.24', ua: 'curl/8.9', cid: 'c-e4c1d7b0',
+      walk: [['07:12:44', 'identity-service', 'Wrong password (failure 3 of 3); account locked for 15 min']] },
+    { t: '07:11:58', actor: 'm.okafor', action: 'LOGIN_FAILED', obj: 'account m.okafor', out: 'FAILED', ip: '203.0.113.24', ua: 'curl/8.9', cid: 'c-a03f6e19',
+      walk: [['07:11:58', 'identity-service', 'Wrong password (failure 2 of 3)']] }
+  ];
+
+  // ---------- shared fragments ----------
+  function notFound(needs) {
+    return `
+      <section class="card empty">
+        <h1 class="h1">Page not found</h1>
+        <p class="sub">This page does not exist, or you do not have access to it.</p>
+        <a class="btn" href="#dashboard">Back to dashboard</a>
+      </section>
+      <div class="design-note">Preview: switch "Preview as" to ${esc(needs)} to see this screen. The product answers not-found instead of forbidden, so it never confirms what exists.</div>`;
+  }
+
+  // ---------- 1 · dashboard ----------
+  function dashboard() {
+    const deps = DEPS.map((d, i) => ({ d, i })).filter(x => seen(x.d[2]));
+    const f = state.dash.filter;
+    const rows = deps.filter(x => f === 'all' || group(x.d[5]) === f);
+    const m = MATRIX.filter(x => seen(x[1]));
+    const of = g => deps.filter(x => group(x.d[5]) === g);
+    const breakdown = list => {
+      const o = {};
+      list.forEach(x => { o[x.d[5]] = (o[x.d[5]] || 0) + 1; });
+      return Object.keys(o).map(k => `${k} ${o[k]}`).join(' · ') || 'none';
+    };
+    const prodOk = m.filter(x => x[2][2][1] === 'HEALTHY').length;
+    const filters = [['all', 'All'], ['flight', 'In flight'], ['attn', 'Needs attention'], ['done', 'Finished']];
+    const matrixCols = '--cols:minmax(140px,1.1fr) repeat(3,minmax(140px,1fr));--minw:620px';
+    const depCols = '--cols:minmax(80px,.8fr) minmax(130px,1.4fr) minmax(70px,.7fr) minmax(70px,.7fr) minmax(130px,1fr) minmax(90px,.8fr) minmax(50px,.5fr);--minw:700px';
+    return `
+      <div class="head">
+        <div>
+          <h1 class="h1">What is happening now</h1>
+          <p class="sub">Deployments and versions across ${allTeams() ? 'all teams' : 'your teams'}.</p>
+        </div>
+        <div class="actions">
+          <span class="pill mono" title="Read model high-water mark">asOf 14:02:31 UTC · 3 s behind</span>
+          ${canDeploy() ? '<a class="btn pri" href="#deploy">New deployment</a>' : ''}
+        </div>
+      </div>
+
+      <div class="tiles">
+        ${tile('In flight', of('flight').length, breakdown(of('flight')))}
+        ${tile('Needs attention', of('attn').length, breakdown(of('attn')))}
+        ${tile('Healthy in prod', `${prodOk} of ${m.length}`, 'applications')}
+        ${tile('Tool sessions', allTeams() ? 14 : 6, 'running now')}
+      </div>
+
+      <div class="wide-2" style="--wide:minmax(0,1fr) minmax(0,1.1fr)">
+      <section class="card" aria-labelledby="where">
+        <div class="cardhead"><h2 class="h2" id="where">What runs where</h2><span class="small">Current release per environment</span></div>
+        <div class="rows">
+          <div class="row th" style="${matrixCols}"><div>Application</div><div>dev</div><div>staging</div><div>prod</div></div>
+          ${m.map(x => `
+            <div class="row" style="${matrixCols}">
+              <div><a class="strong" href="#application">${esc(x[0])}</a><div class="small">${esc(x[1])}</div></div>
+              ${x[2].map(c => `
+                <div class="cell">
+                  <div class="cellline"><span class="mono">${esc(c[0])}</span>${chip(c[1])}</div>
+                  ${c[2] ? `<span class="small">latest: ${esc(c[2])}</span>` : ''}
+                </div>`).join('')}
+            </div>`).join('')}
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="recent">
+        <div class="cardhead">
+          <h2 class="h2" id="recent">Recent deployments</h2>
+          <div class="actions" role="group" aria-label="Filter by state">
+            ${filters.map(([k, l]) => `<button type="button" class="btn sm ${k === f ? 'on' : ''}" aria-pressed="${k === f}" data-act="dash-filter" data-arg="${k}">${l} · ${k === 'all' ? deps.length : of(k).length}</button>`).join('')}
+          </div>
+        </div>
+        <div class="rows">
+          <div class="row th" style="${depCols}"><div>Time (UTC)</div><div>Application</div><div>Release</div><div>Env</div><div>State</div><div>By</div><div></div></div>
+          ${rows.map(({ d, i }) => `
+            <div class="row" style="${depCols}">
+              <div class="mono">${d[0]}</div>
+              <div><a href="#application">${esc(d[1])}</a></div>
+              <div class="mono">${d[3]}</div>
+              <div>${d[4]}</div>
+              <div>${chip(d[5])}</div>
+              <div class="small">${esc(d[6])}</div>
+              <div><a href="#deployment" data-act="dash-open" data-arg="${i}">Open</a></div>
+            </div>`).join('')}
+          ${rows.length ? '' : '<p class="small" style="padding:16px 4px">No deployments in this state.</p>'}
+        </div>
+        <div class="spread" style="margin-top:12px">
+          <span class="small">Newest first. Older rows load by cursor, so the list never skips or repeats rows.</span>
+          <button type="button" class="btn sm">Load older</button>
+        </div>
+      </section>
+      </div>`;
+  }
+
+  // ---------- 2 · application ----------
+  function application() {
+    const can = canDeploy();
+    const a = state.app;
+    const envs = [
+      ['dev', '2.4.0', 'HEALTHY', 'Healthy since 09:04 UTC'],
+      ['staging', '2.4.0', 'DEPLOYING', 'Started 14:01 UTC by you'],
+      ['prod', '2.3.1', 'HEALTHY', 'Healthy since 11:33 UTC']
+    ];
+    const rels = (a.registered ? [['2.5.0', 'registry.internal/payments/billing-api:2.5.0', 'sha256:3b7d…a0c4', 'Oct 2, 14:05', '—']] : []).concat(RELEASES);
+    const relCols = '--cols:minmax(60px,.6fr) minmax(220px,2.4fr) minmax(140px,1.2fr) minmax(110px,1fr) minmax(90px,.8fr) minmax(70px,.6fr);--minw:740px';
+    const histCols = '--cols:minmax(90px,1fr) minmax(60px,.7fr) minmax(70px,.8fr) minmax(130px,1.1fr) minmax(80px,1fr);--minw:480px';
+    return `
+      <div class="head">
+        <div>
+          <p class="crumb"><a href="#dashboard">Applications</a> / billing-api</p>
+          <h1 class="h1">billing-api</h1>
+          <p class="sub">Invoices and payment intents API · owned by Payments</p>
+        </div>
+        <div class="actions">
+          ${can ? `<button type="button" class="btn" data-act="app-form" aria-expanded="${a.form}">Register release</button>
+                   <a class="btn pri" href="#deploy">Deploy</a>` : ''}
+        </div>
+      </div>
+      ${can ? '' : '<div class="note">View only. Deploying or rolling back billing-api needs DEPLOYER on Payments.</div>'}
+
+      <div class="three">
+        ${envs.map(e => {
+          const isLive = live(e[2]);
+          const req = a.rb[e[0]];
+          return `
+          <section class="card stack">
+            <div class="spread"><h2 class="h2">${e[0]}</h2>${chip(e[2])}</div>
+            <div><div class="mono big">${e[1]}</div><div class="small">${e[3]}</div></div>
+            ${req ? '<div class="okbox">Rollback accepted. A ROLLBACK task is PENDING; the state changes when it runs.</div>' : ''}
+            <div class="actions">
+              ${isLive ? '<a class="btn sm pri" href="#deployment">Watch progress</a>' : ''}
+              ${can ? `<button type="button" class="btn sm" data-act="app-rb" data-arg="${e[0]}" ${isLive || req ? 'disabled' : ''}>Roll back</button>` : ''}
+            </div>
+            ${can && isLive ? '<span class="small">Roll back is available once the deployment is HEALTHY or DEGRADED.</span>' : ''}
+            ${can && req ? '<span class="small">Rollback already requested.</span>' : ''}
+          </section>`;
+        }).join('')}
+      </div>
+
+      ${a.form ? `
+      <section class="card stack" aria-labelledby="reg">
+        <h2 class="h2" id="reg">Register a release</h2>
+        <div class="three">
+          <div><label class="lbl" for="r-ver">Version</label><input class="field mono" id="r-ver" placeholder="2.5.0"></div>
+          <div><label class="lbl" for="r-art">Artifact reference</label><input class="field mono" id="r-art" placeholder="registry.internal/payments/billing-api:2.5.0"></div>
+          <div><label class="lbl" for="r-sum">Checksum</label><input class="field mono" id="r-sum" placeholder="sha256: followed by 64 hex characters"></div>
+        </div>
+        <p class="small">Version uses letters, digits and . _ + -. A release cannot be edited after it is registered.</p>
+        <div class="actions">
+          <button type="button" class="btn pri" data-act="app-reg">Register</button>
+          <button type="button" class="btn" data-act="app-form">Cancel</button>
+        </div>
+      </section>` : ''}
+
+      <div class="wide-2" style="--wide:minmax(0,1.4fr) minmax(0,1fr)">
+      <section class="card" aria-labelledby="rels">
+        <div class="cardhead"><h2 class="h2" id="rels">Releases</h2><span class="small">Immutable once registered</span></div>
+        ${a.registered ? '<div class="okbox" style="margin-bottom:12px">Release 2.5.0 registered. It can no longer be edited.</div>' : ''}
+        <div class="rows">
+          <div class="row th" style="${relCols}"><div>Version</div><div>Artifact</div><div>Checksum</div><div>Registered</div><div>Running in</div><div></div></div>
+          ${rels.map(r => `
+            <div class="row" style="${relCols}">
+              <div class="mono strong">${r[0]}</div>
+              <div class="mono" style="overflow-wrap:anywhere">${esc(r[1])}</div>
+              <div class="mono">${esc(r[2])}</div>
+              <div class="small">${r[3]}</div>
+              <div>${r[4]}</div>
+              <div>${can ? '<a href="#deploy">Deploy…</a>' : ''}</div>
+            </div>`).join('')}
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="hist">
+        <div class="cardhead"><h2 class="h2" id="hist">History</h2><span class="small">Last 30 days: 18 of 20 deployments reached HEALTHY · 1 FAILED · 1 ROLLED_BACK</span></div>
+        <div class="rows">
+          <div class="row th" style="${histCols}"><div>When (UTC)</div><div>Release</div><div>Env</div><div>State</div><div>By</div></div>
+          ${[
+            ['Today 14:01', '2.4.0', 'staging', 'DEPLOYING', 'you'],
+            ['Today 11:30', '2.3.1', 'prod', 'HEALTHY', 'you'],
+            ['Today 09:02', '2.4.0', 'dev', 'HEALTHY', 'you'],
+            ['Sep 29 16:44', '2.3.1', 'staging', 'HEALTHY', 'm.okafor'],
+            ['Sep 27 10:10', '2.3.0', 'prod', 'ROLLED_BACK', 'm.okafor']
+          ].map(h => `
+            <div class="row" style="${histCols}">
+              <div class="small">${h[0]}</div><div class="mono">${h[1]}</div><div>${h[2]}</div><div>${chip(h[3])}</div><div class="small">${h[4]}</div>
+            </div>`).join('')}
+        </div>
+      </section>
+      </div>`;
+  }
+
+  // ---------- 3 · deploy ----------
+  function deploy() {
+    const d = state.deploy;
+    const can = canDeploy();
+    const conflict = d.env === 'staging';
+    const cur = CURRENT[d.env][0];
+    const review = cur === d.rel
+      ? `${d.env} already runs ${d.rel}. Deploying again re-runs the same release.`
+      : `Replaces ${cur} in ${d.env}.`;
+    return `
+      <div class="head">
+        <div>
+          <p class="crumb"><a href="#application">billing-api</a> / New deployment</p>
+          <h1 class="h1">Deploy billing-api</h1>
+          <p class="sub">Choose a release and an environment.</p>
+        </div>
+      </div>
+      <div class="two limit">
+        <section class="card stack" aria-label="Deployment form">
+          ${can ? '' : '<div class="note">You can view releases but not deploy. Deploying billing-api needs DEPLOYER on Payments.</div>'}
+          <div>
+            <label class="lbl" for="d-app">Application</label>
+            <select class="field" id="d-app"><option>billing-api · Payments</option><option>checkout-web · Payments</option><option>ledger-worker · Payments</option></select>
+          </div>
+          <fieldset class="fs">
+            <legend class="lbl">Release</legend>
+            ${RELEASES.slice(0, 3).map(r => `
+              <label class="opt">
+                <input type="radio" name="rel" value="${r[0]}" data-act="dep-rel" data-arg="${r[0]}" ${r[0] === d.rel ? 'checked' : ''}>
+                <span class="mono strong">${r[0]}</span>
+                <span class="small mono">${esc(r[2])}</span>
+                <span class="small">registered ${r[3]}</span>
+              </label>`).join('')}
+          </fieldset>
+          <fieldset class="fs">
+            <legend class="lbl">Environment</legend>
+            <div class="envs">
+              ${Object.keys(CURRENT).map(e => `
+                <button type="button" class="envbtn" aria-pressed="${e === d.env}" data-act="dep-env" data-arg="${e}">
+                  <span class="strong">${e}</span>
+                  <span class="cellline"><span class="mono">${CURRENT[e][0]}</span>${chip(CURRENT[e][1])}</span>
+                </button>`).join('')}
+            </div>
+          </fieldset>
+          <div class="note"><b>Review:</b> billing-api <span class="mono">${d.rel}</span> → ${d.env}. ${review}</div>
+          ${conflict && !d.result ? `<div class="warn">staging already has an active deployment (2.4.0, DEPLOYING). Only one deployment per environment can be active, so this request will be refused. <a href="#deployment">Open the active deployment</a></div>` : ''}
+          ${d.result === 'accepted' ? `
+            <div class="okbox stack" role="status">
+              <div><b>Accepted.</b> billing-api <span class="mono">${d.rel}</span> → ${d.env} is PENDING.</div>
+              <div class="small mono">deployment 0192f3a1-7c2e · task 0192f3a2-11d0</div>
+              <div class="small">Submitting the same request again returns this deployment. It will not deploy twice.</div>
+              <div><a class="btn sm pri" href="#deployment" data-act="dep-follow">Follow progress</a></div>
+            </div>` : ''}
+          ${d.result === 'conflict' ? `
+            <div class="warn" role="alert"><b>Not started: conflict.</b> staging already has an active deployment of billing-api (2.4.0, DEPLOYING). Wait for it to finish, or roll it back. <a href="#deployment">Open the active deployment</a></div>` : ''}
+          <div class="actions">
+            <button type="button" class="btn pri" data-act="dep-submit" ${!can || d.result === 'accepted' ? 'disabled' : ''}>Deploy</button>
+            <a class="btn" href="#application">Cancel</a>
+          </div>
+          <p class="small">Safe to retry: if the connection drops, submit again. The same request never deploys twice.</p>
+        </section>
+        <aside class="card stack" aria-labelledby="next">
+          <h2 class="h2" id="next">After you submit</h2>
+          <ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:10px">
+            <li><b>Accepted at once.</b> You get a deployment id right away; the work runs in the background.</li>
+            <li><b>Clear states.</b> PENDING → VALIDATING → DEPLOYING → HEALTHY, or FAILED with a reason.</li>
+            <li><b>Short failures retry by themselves.</b> Permanent ones stop and go to the operators' queue.</li>
+            <li><b>Roll back in one click</b> once the deployment is HEALTHY or DEGRADED.</li>
+          </ol>
+        </aside>
+      </div>`;
+  }
+
+  // ---------- 4 · deployment ----------
+  function deployment() {
+    const d = state.dep;
+    const S = d.state;
+    const can = canDeploy();
+    const node = NODE_OF[d.env];
+    const prev = d.app === 'billing-api' && d.rel === '2.3.1' ? '2.3.0' : PREV[d.app];
+    const reach = { PENDING: 0, VALIDATING: 1, DEPLOYING: 2, HEALTHY: 3, DEGRADED: 4, ROLLED_BACK: 4, FAILED: 2 }[S];
+    const steps = ['PENDING', 'VALIDATING', 'DEPLOYING', 'HEALTHY'].map((p, i) => {
+      let k;
+      if (S === 'FAILED') k = i < 2 ? 'done' : i === 2 ? 'fail' : 'todo';
+      else if (reach === 4) k = 'done';
+      else k = i < reach ? 'done' : i === reach ? 'cur' : 'todo';
+      const mark = { done: 'Done', cur: 'Current', fail: 'Failed here', todo: 'Not yet' }[k];
+      return `<li class="step step-${k}" ${k === 'cur' ? 'aria-current="step"' : ''}><b>${p}</b><span>${mark}</span></li>`;
+    }).join('');
+    const outcomes = ['FAILED', 'DEGRADED', 'ROLLED_BACK']
+      .map(o => o === S ? `${chip(o)} <span class="small">current</span>` : `<span class="chip st-off">${o}</span>`).join(' ');
+    const final = S === 'FAILED' || S === 'ROLLED_BACK';
+    const rbOk = can && (S === 'HEALTHY' || S === 'DEGRADED') && !d.rb;
+    const rbReason = !can ? 'Rolling back needs DEPLOYER on Payments.'
+      : d.rb ? 'Rollback already requested. Asking again is refused.'
+      : live(S) ? 'Available once the deployment is HEALTHY or DEGRADED.'
+      : final ? 'Not available from a final state.' : '';
+    const status = live(S) ? 'Live · updates every 2 s' : final ? 'Final state' : 'Stable · no work in flight';
+
+    const transient = ['FAILED', '14:01:13', 'Node did not answer within 30 s. Temporary; retried after 4 s.'];
+    const ok = [transient, ['SUCCEEDED', '14:01:47', 'Health check passed.']];
+    const attempts = {
+      PENDING: [],
+      VALIDATING: [['RUNNING', '14:01:13', 'Checking the release checksum and image.']],
+      DEPLOYING: [transient, ['RUNNING', '14:01:47', 'Starting containers.']],
+      HEALTHY: ok, DEGRADED: ok, ROLLED_BACK: ok,
+      FAILED: [transient, ['FAILED', '14:01:47', 'Node did not answer within 30 s. Temporary; retried after 9 s.'], ['FAILED', '14:02:26', 'Image pull denied. Permanent: stopped and sent to the dead-letter queue.']]
+    }[S];
+    const taskStatus = { PENDING: 'PENDING', VALIDATING: 'RUNNING', DEPLOYING: 'RUNNING', HEALTHY: 'SUCCEEDED', DEGRADED: 'SUCCEEDED', ROLLED_BACK: 'SUCCEEDED', FAILED: 'FAILED' }[S];
+    const tasks = [{ type: 'DEPLOY', id: '0192f3a2-11d0', status: taskStatus, attempts, dlq: S === 'FAILED' }];
+    if (d.rb || S === 'ROLLED_BACK') {
+      tasks.push({ type: 'ROLLBACK', id: '0192f4c8-03aa', status: S === 'ROLLED_BACK' ? 'SUCCEEDED' : 'PENDING',
+        attempts: S === 'ROLLED_BACK' ? [['SUCCEEDED', '14:31:05', `Restored ${prev}.`]] : [], dlq: false });
+    }
+
+    const ev = [['14:01:12', `Requested by ${d.by}`, 'PENDING']];
+    if (reach >= 1) ev.push(['14:01:13', 'Validation started', 'VALIDATING']);
+    if (reach >= 2) ev.push(['14:01:16', `Deploying to ${node[0]}`, 'DEPLOYING']);
+    if (S === 'FAILED') ev.push(['14:02:26', 'Failed after 3 attempts: image pull denied', 'FAILED']);
+    if (['HEALTHY', 'DEGRADED', 'ROLLED_BACK'].includes(S)) ev.push(['14:02:05', 'Health check passed', 'HEALTHY']);
+    if (S === 'DEGRADED' || S === 'ROLLED_BACK') ev.push(['14:20:40', '1 of 3 instances failing health checks', 'DEGRADED']);
+    if (d.rb || S === 'ROLLED_BACK') ev.push(['14:31:02', 'Rollback requested by you', '']);
+    if (S === 'ROLLED_BACK') ev.push(['14:31:40', `Rolled back to ${prev}`, 'ROLLED_BACK']);
+
+    return `
+      <div class="head">
+        <div>
+          <p class="crumb"><a href="#dashboard">Dashboard</a> / <a href="#application">${esc(d.app)}</a> / Deployment</p>
+          <h1 class="h1">${esc(d.app)} <span class="mono big">${d.rel}</span> → ${d.env} ${chip(S)}</h1>
+          <p class="sub">Requested by ${esc(d.by)} at 14:01:12 UTC · <span class="pill">${status}</span></p>
+        </div>
+        <div class="stack" style="gap:6px;align-items:flex-end">
+          ${can ? `<button type="button" class="btn" data-act="dep-rb" ${rbOk ? '' : 'disabled'}>Roll back</button>` : ''}
+          ${rbReason ? `<span class="small">${rbReason}</span>` : ''}
+        </div>
+      </div>
+      ${d.rb && S !== 'ROLLED_BACK' ? '<div class="okbox" role="status"><b>Rollback accepted.</b> A ROLLBACK task is PENDING. The state changes to ROLLED_BACK when that task completes.</div>' : ''}
+
+      <section class="card stack" aria-labelledby="prog">
+        <h2 class="h2" id="prog">Progress</h2>
+        <ol class="steps">${steps}</ol>
+        <div class="cellline"><span class="small">Other outcomes:</span> ${outcomes}</div>
+      </section>
+
+      <div class="two">
+        <div class="stack" style="gap:var(--gap)">
+          <section class="card stack" aria-labelledby="tasks">
+            <h2 class="h2" id="tasks">Tasks and attempts</h2>
+            ${tasks.map(t => `
+              <div class="box">
+                <div class="spread"><div><b>${t.type}</b> <span class="small mono">task ${t.id}</span></div>${chip(t.status)}</div>
+                ${t.attempts.length ? '' : '<span class="small">Waiting for a worker to pick this up.</span>'}
+                ${t.attempts.map((a, i) => `
+                  <div class="attempt"><span class="small">Attempt ${i + 1}</span><span>${chip(a[0])}</span><span class="small"><span class="mono">${a[1]}</span> · ${node[0]} · ${esc(a[2])}</span></div>`).join('')}
+                ${t.dlq ? '<a class="small" href="#fleet">View in the dead-letter queue</a>' : ''}
+              </div>`).join('')}
+          </section>
+          <section class="card" aria-labelledby="events">
+            <div class="cardhead"><h2 class="h2" id="events">Timeline</h2><a class="small" href="#audit">Full audit trail</a></div>
+            <ol class="timeline">
+              ${ev.map(e => `<li><span class="mono">${e[0]}</span><span>${esc(e[1])}</span><span>${e[2] ? chip(e[2]) : ''}</span></li>`).join('')}
+            </ol>
+          </section>
+        </div>
+        <aside class="card" aria-labelledby="details">
+          <h2 class="h2" id="details" style="margin-bottom:12px">Details</h2>
+          <dl class="dl">
+            <dt>Application</dt><dd><a href="#application">${esc(d.app)}</a></dd>
+            <dt>Release</dt><dd class="mono">${d.rel}</dd>
+            <dt>Checksum</dt><dd class="mono">sha256:9f2c…e41a</dd>
+            <dt>Environment</dt><dd>${d.env}</dd>
+            <dt>Node</dt><dd>${node[0]} <span class="small">· lease token ${node[1]}</span></dd>
+            <dt>Deployment id</dt><dd class="mono">0192f3a1-7c2e-7b10-9a51-3e8d2c4f6b77</dd>
+            <dt>Correlation id</dt><dd class="mono"><a href="#audit">c-7f3a91d2</a></dd>
+          </dl>
+        </aside>
+      </div>`;
+  }
+
+  // ---------- 5 · sessions ----------
+  function catalogCards() {
+    const q = state.sess.q.trim().toLowerCase();
+    const items = CATALOG.filter(c => !q || c[1].toLowerCase().includes(q));
+    if (!items.length) return '<p class="small">No tools match that search.</p>';
+    return items.map(c => `
+      <div class="card stack" style="gap:8px">
+        <h3 class="h2">${esc(c[1])}</h3>
+        <div class="small"><span class="mono">${c[2]}</span> · built on <span class="mono">${c[3]}</span></div>
+        <div class="small">${c[4] ? 'Warm pool · ready in under 5 s' : 'Cold start · ready in up to 30 s'}</div>
+        <div><button type="button" class="btn sm pri" data-act="sess-launch" data-arg="${c[0]}" aria-label="Launch ${esc(c[1])}">Launch</button></div>
+      </div>`).join('');
+  }
+
+  function sessions() {
+    const list = state.sess.list;
+    const cols = '--cols:minmax(180px,1.4fr) minmax(90px,.7fr) minmax(100px,.7fr) minmax(180px,1.6fr) auto;--minw:620px';
+    return `
+      <div class="head">
+        <div>
+          <h1 class="h1">Tool sessions</h1>
+          <p class="sub">Run heavy tools in your browser. Nothing installs on your laptop.</p>
+        </div>
+      </div>
+      <section class="card" aria-labelledby="mine">
+        <div class="cardhead"><h2 class="h2" id="mine">Your sessions</h2><span class="small">Private to you: each session is its own container.</span></div>
+        ${list.length ? `
+        <div class="rows">
+          <div class="row th" style="${cols}"><div>Tool</div><div>Version</div><div>State</div><div>Activity</div><div></div></div>
+          ${list.map(s => `
+            <div class="row" style="${cols}">
+              <div class="strong">${esc(s.tool)}</div>
+              <div class="mono">${s.ver}</div>
+              <div>${chip(s.status)}</div>
+              <div class="small">${esc(s.detail)}</div>
+              <div class="actions">
+                <button type="button" class="btn sm" ${s.status === 'STARTING' ? 'disabled' : ''}>Open</button>
+                <button type="button" class="btn sm" data-act="sess-end" data-arg="${s.id}">End</button>
+              </div>
+            </div>`).join('')}
+        </div>` : '<p class="small">No sessions running. Launch a tool from the catalogue.</p>'}
+        <p class="small" style="margin-top:12px">Sessions end after 30 minutes without activity, so shared capacity stays free. Save your work in the tool before you leave.</p>
+      </section>
+      <section class="card stack" aria-labelledby="cat">
+        <div class="spread">
+          <h2 class="h2" id="cat">Catalogue</h2>
+          <input class="search" id="cat-q" type="search" aria-label="Search the catalogue" placeholder="Search tools" value="${esc(state.sess.q)}">
+        </div>
+        <div class="catalog" id="cat-grid">${catalogCards()}</div>
+      </section>`;
+  }
+
+  function launch(toolId) {
+    const c = CATALOG.find(x => x[0] === toolId);
+    const id = state.sess.next++;
+    state.sess.list.unshift({ id, tool: c[1], ver: c[2], status: 'STARTING', detail: c[4] ? 'Warm pool · ready in under 5 s' : 'Cold start · ready in up to 30 s' });
+    setTimeout(() => {
+      const s = state.sess.list.find(x => x.id === id);
+      if (s && s.status === 'STARTING') {
+        s.status = 'RUNNING';
+        s.detail = 'Active now · ends after 30 min idle';
+        if (route() === 'sessions') render();
+      }
+    }, c[4] ? 1500 : 4500);
+  }
+
+  // ---------- 6 · fleet ----------
+  function fleet() {
+    if (!['OPERATOR', 'ADMIN'].includes(state.role)) return notFound('OPERATOR or ADMIN');
+    const fl = state.fleet;
+    const nodes = NODES.map(n => ({ n, st: fl.drained[n[0]] ? 'DRAINING' : n[6] }));
+    const alive = nodes.filter(x => x.st !== 'STALE').length;
+    const waiting = DLQ.filter(x => !fl.replayed[x[0]]).length;
+    const nodeCols = '--cols:minmax(110px,1.2fr) minmax(70px,.7fr) minmax(110px,1.1fr) minmax(70px,.6fr) minmax(80px,.8fr) minmax(70px,.7fr) minmax(130px,1fr) minmax(80px,.8fr);--minw:820px';
+    const dlqCols = '--cols:minmax(70px,.7fr) minmax(180px,1.6fr) minmax(60px,.5fr) minmax(170px,1.6fr) minmax(60px,.5fr) minmax(140px,1fr);--minw:740px';
+    const projCols = '--cols:minmax(160px,1.2fr) minmax(70px,.5fr) minmax(200px,2fr) minmax(100px,.8fr);--minw:560px';
+    return `
+      <div class="head">
+        <div><h1 class="h1">Fleet and dead-letter queue</h1><p class="sub">Nodes, stuck work and failed messages across all teams.</p></div>
+        <span class="pill mono">asOf 14:02:31 UTC · projection lag 1.8 s</span>
+      </div>
+      <div class="tiles">
+        ${tile('Nodes heartbeating', `${alive} of ${nodes.length}`, 'within 15 s')}
+        ${tile('Session slots used', '14 of 48', 'across 6 nodes')}
+        ${tile('Work queue', '37', 'messages waiting')}
+        ${tile('Dead-letter queue', waiting, 'messages waiting')}
+      </div>
+
+      <section class="card" aria-labelledby="nodes">
+        <div class="cardhead"><h2 class="h2" id="nodes">Nodes</h2><span class="small">One agent holds each node's lease. Stale writers are rejected by fencing token.</span></div>
+        <div class="rows">
+          <div class="row th" style="${nodeCols}"><div>Node</div><div>Env</div><div>Lease holder</div><div>Token</div><div>Heartbeat</div><div>Sessions</div><div>State</div><div></div></div>
+          ${nodes.map(({ n, st }) => `
+            <div class="row" style="${nodeCols}">
+              <div class="mono">${n[0]}</div><div>${n[1]}</div><div class="mono">${n[2]}</div><div class="mono">${n[3]}</div>
+              <div class="small">${n[4]}</div><div class="small">${n[5]}</div><div>${chip(st, NODE_LABEL[st])}</div>
+              <div><button type="button" class="btn sm" data-act="fleet-drain" data-arg="${n[0]}" ${st === 'DRAINING' ? 'disabled' : ''}>Drain</button></div>
+            </div>`).join('')}
+        </div>
+      </section>
+
+      <section class="card stack" aria-labelledby="stuck">
+        <h2 class="h2" id="stuck">Stuck tasks</h2>
+        ${fl.reclaimed
+          ? '<div class="okbox" role="status">Lease on prd-node-02 released. The task is back in the queue; attempt 2 will start on a healthy node.</div>'
+          : `<div class="spread box" style="flex-direction:row">
+               <div><b>ledger-worker 0.18.2 → prod</b> · DEPLOY · ${chip('RUNNING')} <div class="small">Running 18 min on prd-node-02. The node's heartbeat is stale.</div></div>
+               <button type="button" class="btn sm" data-act="fleet-reclaim">Reclaim and retry</button>
+             </div>`}
+      </section>
+
+      <div class="wide-2" style="--wide:minmax(0,1.5fr) minmax(0,1fr)">
+      <section class="card" aria-labelledby="dlq">
+        <div class="cardhead"><h2 class="h2" id="dlq">Dead-letter queue</h2><span class="small">Permanent failures stop here until someone replays them.</span></div>
+        <div class="rows">
+          <div class="row th" style="${dlqCols}"><div>Failed (UTC)</div><div>Work</div><div>Task</div><div>Reason</div><div>Attempts</div><div></div></div>
+          ${DLQ.map(x => `
+            <div class="row" style="${dlqCols}">
+              <div class="mono">${x[1]}</div><div>${esc(x[2])}</div><div class="small">${x[3]}</div><div class="small">${esc(x[4])}</div><div class="small">${x[5]}</div>
+              <div>${fl.replayed[x[0]] ? chip('QUEUED', 'Replayed · queued') : `<button type="button" class="btn sm" data-act="fleet-replay" data-arg="${x[0]}">Replay</button>`}</div>
+            </div>`).join('')}
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="proj">
+        <div class="cardhead"><h2 class="h2" id="proj">Read-model projections</h2><span class="small">Lag is how far reads trail writes.</span></div>
+        <div class="rows">
+          <div class="row th" style="${projCols}"><div>Projection</div><div>Lag</div><div>State</div><div></div></div>
+          ${PROJ.map(p => `
+            <div class="row" style="${projCols}">
+              <div class="mono">${p[0]}</div><div class="small">${p[1]}</div>
+              <div class="small">${fl.rebuilt[p[0]] ? 'Rebuilding from the earliest offset. Reads show the old data until it finishes.' : 'Up to date'}</div>
+              <div><button type="button" class="btn sm" data-act="fleet-rebuild" data-arg="${p[0]}" ${fl.rebuilt[p[0]] ? 'disabled' : ''}>Rebuild</button></div>
+            </div>`).join('')}
+        </div>
+      </section>
+      </div>`;
+  }
+
+  // ---------- 7 · access ----------
+  function access() {
+    if (state.role !== 'ADMIN') return notFound('ADMIN');
+    const ac = state.access;
+    const u = USERS.find(x => x.id === ac.sel);
+    const inactive = u.inactive || ac.deact[u.id];
+    const key = g => `${u.id}|${g[0]}|${g[1]}`;
+    const active = u.grants.filter(g => !ac.revoked[key(g)]);
+    const summary = x => x.grants.map(g => `${g[1]} on ${g[0]}`).join(' · ') || 'No grants';
+    const grantCols = '--cols:minmax(100px,1fr) minmax(90px,.8fr) minmax(80px,.7fr) minmax(60px,.6fr) minmax(170px,1.4fr);--minw:560px';
+    const saCols = '--cols:minmax(120px,1fr) minmax(180px,1.6fr) minmax(80px,.7fr) minmax(70px,.6fr) minmax(80px,.7fr) minmax(170px,1.4fr);--minw:760px';
+    return `
+      <div class="head">
+        <div><h1 class="h1">Access</h1><p class="sub">Who can do what, per team.</p></div>
+        <button type="button" class="btn">Invite user</button>
+      </div>
+      <div class="split">
+        <section class="card" aria-labelledby="users">
+          <div class="cardhead"><h2 class="h2" id="users">Users</h2></div>
+          <input class="field" type="search" aria-label="Search users" placeholder="Search users" style="margin-bottom:8px">
+          ${USERS.map(x => `
+            <button type="button" class="row rowbtn" style="--cols:minmax(0,1fr) auto;--minw:0" aria-pressed="${x.id === ac.sel}" data-act="acc-sel" data-arg="${x.id}">
+              <span><span class="strong">${esc(x.id)}</span><br><span class="small">${esc(summary(x))}</span></span>
+              ${x.inactive || ac.deact[x.id] ? chip('DEACTIVATED', 'Deactivated') : ''}
+            </button>`).join('')}
+        </section>
+
+        <div class="wide-2" style="--wide:minmax(0,.85fr) minmax(0,1.4fr)">
+          <section class="card stack" aria-labelledby="user">
+            <div class="spread">
+              <h2 class="h1 h1-sm" id="user">${esc(u.id)} ${inactive ? chip('DEACTIVATED', 'Deactivated') : chip('ACTIVE', 'Active')}</h2>
+              <div class="actions">
+                <button type="button" class="btn sm" ${inactive ? 'disabled' : ''}>Reset password</button>
+                <button type="button" class="btn sm" data-act="acc-deact" data-arg="${u.id}" ${inactive ? 'disabled' : ''}>Deactivate</button>
+              </div>
+            </div>
+            <dl class="dl">
+              <dt>Last sign-in</dt><dd>${esc(u.login)}</dd>
+              <dt>Sign-in security</dt><dd>${esc(u.sec)}</dd>
+            </dl>
+            <p class="small">Users are deactivated, never deleted, so their audit history stays complete.</p>
+          </section>
+
+          <section class="card" aria-labelledby="grants">
+            <div class="cardhead"><h2 class="h2" id="grants">Grants</h2><span class="small">A role applies to one team only.</span></div>
+            ${u.grants.length ? `
+            <div class="rows">
+              <div class="row th" style="${grantCols}"><div>Team</div><div>Role</div><div>Granted by</div><div>On</div><div></div></div>
+              ${u.grants.map(g => `
+                <div class="row" style="${grantCols}">
+                  <div>${g[0]}</div><div class="mono">${g[1]}</div><div class="small">${g[2]}</div><div class="small">${g[3]}</div>
+                  <div>${ac.revoked[key(g)] ? '<span class="small">Revoked · takes effect within 5 min</span>' : `<button type="button" class="btn sm" data-act="acc-revoke" data-arg="${esc(key(g))}" ${inactive ? 'disabled' : ''}>Revoke</button>`}</div>
+                </div>`).join('')}
+            </div>` : '<p class="small">No grants.</p>'}
+            ${inactive ? '' : `
+            <div class="actions" style="margin-top:12px;align-items:flex-end">
+              <div><label class="lbl" for="g-team">Team</label><select class="field" id="g-team"><option>Payments</option><option>Search</option></select></div>
+              <div><label class="lbl" for="g-role">Role</label><select class="field" id="g-role"><option>VIEWER</option><option>DEPLOYER</option><option>OPERATOR</option><option>ADMIN</option></select></div>
+              <button type="button" class="btn">Add grant</button>
+            </div>`}
+            <div class="note" style="margin-top:12px">
+              <b>Effective permissions</b>
+              ${active.length ? active.map(g => `<div><span class="strong">${g[0]}:</span> <span class="mono">${(PERMS[g[1]] || []).join(', ')}</span></div>`).join('') : '<div>None</div>'}
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <section class="card" aria-labelledby="sa">
+        <div class="cardhead"><h2 class="h2" id="sa">Service accounts</h2><span class="small">Machines sign in with scoped keys, never shared secrets. A new key is shown once.</span></div>
+        <div class="rows">
+          <div class="row th" style="${saCols}"><div>Account</div><div>Scopes</div><div>Key</div><div>Created</div><div>Last used</div><div></div></div>
+          ${SERVICE_ACCOUNTS.map(s => `
+            <div class="row" style="${saCols}">
+              <div class="mono strong">${s[0]}</div><div class="small">${esc(s[1])}</div>
+              <div class="mono">${ac.rotated[s[0]] ? 'ak_…9b41' : s[2]}</div><div class="small">${ac.rotated[s[0]] ? 'Today' : s[3]}</div><div class="small">${s[4]}</div>
+              <div>${ac.rotated[s[0]] ? '<span class="small">New key issued. Old key stops working in 10 min.</span>' : `<button type="button" class="btn sm" data-act="acc-rotate" data-arg="${s[0]}">Rotate key</button>`}</div>
+            </div>`).join('')}
+        </div>
+      </section>`;
+  }
+
+  // ---------- 8 · audit ----------
+  function audit() {
+    if (!['AUDITOR', 'OPERATOR', 'ADMIN'].includes(state.role)) return notFound('AUDITOR, OPERATOR or ADMIN');
+    const sel = EVENTS[state.audit.sel];
+    const cols = '--cols:minmax(64px,.6fr) minmax(80px,.8fr) minmax(150px,1.5fr) minmax(130px,1.4fr) minmax(90px,.8fr);--minw:560px';
+    return `
+      <div class="head">
+        <div><h1 class="h1">Audit trail</h1><p class="sub">Who did what, when, to what. Append-only.</p></div>
+        <button type="button" class="btn">Export CSV</button>
+      </div>
+      <section class="card" aria-label="Filters">
+        <div class="tiles" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));align-items:end">
+          <div><label class="lbl" for="f-actor">Actor</label><input class="field" id="f-actor" placeholder="user or service"></div>
+          <div><label class="lbl" for="f-action">Action</label><select class="field" id="f-action"><option>Any action</option><option>DEPLOYMENT_REQUESTED</option><option>ROLLBACK_REQUESTED</option><option>GRANT_REVOKED</option><option>DLQ_REPLAYED</option><option>LOGIN_FAILED</option></select></div>
+          <div><label class="lbl" for="f-obj">Object</label><input class="field" id="f-obj" placeholder="app, user, node"></div>
+          <div><label class="lbl" for="f-cid">Correlation id</label><input class="field mono" id="f-cid" placeholder="c-…"></div>
+          <div><label class="lbl" for="f-when">When</label><select class="field" id="f-when"><option>Today</option><option>Last 7 days</option><option>Last 30 days</option><option>Custom range</option></select></div>
+        </div>
+      </section>
+      <div class="two">
+        <section class="card" aria-labelledby="evs">
+          <div class="cardhead"><h2 class="h2" id="evs">Events</h2><span class="small">Today, newest first · UTC</span></div>
+          <div class="rows">
+            <div class="row th" style="${cols}"><div>Time</div><div>Actor</div><div>Action</div><div>Object</div><div>Outcome</div></div>
+            ${EVENTS.map((e, i) => `
+              <button type="button" class="row rowbtn" style="${cols}" aria-pressed="${i === state.audit.sel}" data-act="audit-sel" data-arg="${i}">
+                <span class="mono">${e.t}</span><span>${esc(e.actor)}</span><span class="mono" style="font-size:11.5px">${e.action}</span><span class="small">${esc(e.obj)}</span><span>${chip(e.out)}</span>
+              </button>`).join('')}
+          </div>
+        </section>
+        <aside class="card stack" aria-labelledby="ev">
+          <h2 class="h2" id="ev">Event detail</h2>
+          <dl class="dl">
+            <dt>Time</dt><dd class="mono">Oct 2 · ${sel.t} UTC</dd>
+            <dt>Actor</dt><dd>${esc(sel.actor)}</dd>
+            <dt>Action</dt><dd class="mono">${sel.action}</dd>
+            <dt>Object</dt><dd>${esc(sel.obj)}</dd>
+            <dt>Outcome</dt><dd>${chip(sel.out)}</dd>
+            <dt>Source</dt><dd>${esc(sel.ip)} · ${esc(sel.ua)}</dd>
+            <dt>Correlation id</dt><dd class="mono">${sel.cid}</dd>
+          </dl>
+          <h3 class="h2">Everything with ${sel.cid}</h3>
+          <ol class="walk">
+            ${sel.walk.map(w => `<li><div class="small"><span class="mono">${w[0]}</span> · ${esc(w[1])}</div><div>${esc(w[2])}</div></li>`).join('')}
+          </ol>
+        </aside>
+      </div>`;
+  }
+
+  const VIEWS = { dashboard, application, deploy, deployment, sessions, fleet, access, audit };
+
+  // ---------- actions ----------
+  const ACT = {
+    'dash-filter': a => { state.dash.filter = a; },
+    'dash-open': a => {
+      const d = DEPS[Number(a)];
+      Object.assign(state.dep, { app: d[1], rel: d[3], env: d[4], state: d[5], by: d[6], rb: false });
+    },
+    'app-form': () => { state.app.form = !state.app.form; },
+    'app-reg': () => { state.app.registered = true; state.app.form = false; },
+    'app-rb': a => { state.app.rb[a] = true; },
+    'dep-env': a => { state.deploy.env = a; state.deploy.result = ''; },
+    'dep-rel': a => { state.deploy.rel = a; state.deploy.result = ''; },
+    'dep-submit': () => { state.deploy.result = state.deploy.env === 'staging' ? 'conflict' : 'accepted'; },
+    'dep-follow': () => {
+      Object.assign(state.dep, { app: 'billing-api', rel: state.deploy.rel, env: state.deploy.env, state: 'PENDING', by: 'you', rb: false });
+    },
+    'dep-rb': () => { state.dep.rb = true; },
+    'sess-launch': a => launch(a),
+    'sess-end': a => { state.sess.list = state.sess.list.filter(s => String(s.id) !== a); },
+    'fleet-drain': a => { state.fleet.drained[a] = true; },
+    'fleet-replay': a => { state.fleet.replayed[a] = true; },
+    'fleet-rebuild': a => { state.fleet.rebuilt[a] = true; },
+    'fleet-reclaim': () => { state.fleet.reclaimed = true; },
+    'acc-sel': a => { state.access.sel = a; },
+    'acc-revoke': a => { state.access.revoked[a] = true; },
+    'acc-deact': a => { state.access.deact[a] = true; },
+    'acc-rotate': a => { state.access.rotated[a] = true; },
+    'audit-sel': a => { state.audit.sel = Number(a); }
+  };
+
+  // ---------- render ----------
+  const route = () => {
+    const r = location.hash.slice(1);
+    return VIEWS[r] ? r : 'dashboard';
+  };
+
+  function focusKey() {
+    const el = document.activeElement;
+    if (!el || el === document.body) return null;
+    if (el.id) return '#' + el.id;
+    if (el.dataset && el.dataset.act) {
+      return `[data-act="${el.dataset.act}"]` + (el.dataset.arg !== undefined ? `[data-arg="${el.dataset.arg}"]` : '');
+    }
+    return null;
+  }
+
+  function render() {
+    const r = route();
+    const fk = focusKey();
+    const navOn = PARENT[r] || r;
+    $('#nav').innerHTML = '<div class="brand">app<span>fleet</span></div>' + NAV
+      .filter(n => n[2] === '*' || n[2].split(' ').includes(state.role))
+      .map(n => `<a class="nav" href="#${n[0]}" ${n[0] === navOn ? 'aria-current="page"' : ''}>${n[1]}</a>`).join('');
+    $('#scope').textContent = allTeams() ? 'Teams: all' : 'Teams: Payments';
+    $('#who').textContent = state.role === 'AUDITOR' ? 'you · VIEWER + audit:read'
+      : allTeams() ? `you · ${state.role}` : `you · ${state.role} on Payments`;
+    $('#jump').value = r;
+    $('#role').value = state.role;
+    $('#ctx').innerHTML = r === 'deployment'
+      ? `<label>Deployment state <select id="pv-dep-state">${['PENDING', 'VALIDATING', 'DEPLOYING', 'HEALTHY', 'DEGRADED', 'FAILED', 'ROLLED_BACK']
+          .map(s => `<option ${s === state.dep.state ? 'selected' : ''}>${s}</option>`).join('')}</select></label>`
+      : '';
+    const note = $('#note');
+    note.hidden = !state.notes;
+    note.innerHTML = `<b>Design note</b> · ${esc(NOTES[r])}`;
+    $('#screen').innerHTML = VIEWS[r]();
+    if (fk) {
+      const el = document.querySelector(fk);
+      if (el) el.focus({ preventScroll: true });
+    }
+  }
+
+  // ---------- wiring ----------
+  $('#jump').innerHTML = SCREENS.map(s => `<option value="${s[0]}">${s[1]}</option>`).join('');
+  $('#jump').addEventListener('change', e => { location.hash = e.target.value; });
+  $('#role').addEventListener('change', e => { state.role = e.target.value; render(); });
+  $('#notes').addEventListener('change', e => { state.notes = e.target.checked; render(); });
+
+  document.addEventListener('change', e => {
+    if (e.target.id === 'pv-dep-state') {
+      state.dep.state = e.target.value;
+      state.dep.rb = false;
+      render();
+    }
+  });
+  document.addEventListener('input', e => {
+    if (e.target.id === 'cat-q') {
+      state.sess.q = e.target.value;
+      $('#cat-grid').innerHTML = catalogCards();
+    }
+  });
+  document.addEventListener('click', e => {
+    const el = e.target.closest('[data-act]');
+    if (!el || el.disabled || !ACT[el.dataset.act]) return;
+    ACT[el.dataset.act](el.dataset.arg);
+    const href = el.getAttribute('href');
+    if (href && href !== '#' + route()) return; // navigation; hashchange renders
+    render();
+  });
+  window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
+
+  render();
+})();
+</script>
+</body>
+</html>

@@ -1,22 +1,36 @@
 package io.appfleet.control.web;
 
 import io.appfleet.control.common.NotFoundException;
+import io.appfleet.control.common.UnprocessableRequestException;
 import io.appfleet.control.deployment.DeploymentValidationException;
 import io.appfleet.control.deployment.IllegalTransitionException;
+import io.appfleet.control.deployment.RollbackAlreadyRequestedException;
+import io.appfleet.control.idempotency.IdempotencyKeyReusedException;
+import io.appfleet.control.idempotency.InvalidIdempotencyKeyException;
+import io.appfleet.control.idempotency.RequestInProgressException;
+import io.appfleet.control.ratelimit.RateLimitedException;
 import jakarta.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.TypeMismatchException;
+import org.springframework.context.MessageSourceResolvable;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.http.*;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.validation.method.ParameterValidationResult;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 @RestControllerAdvice
@@ -52,6 +66,33 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return response;
     }
 
+    @Override
+    protected @Nullable ResponseEntity<Object> handleHandlerMethodValidationException(
+            HandlerMethodValidationException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        ResponseEntity<Object> response = super.handleHandlerMethodValidationException(ex, headers, status, request);
+        if (response != null && response.getBody() instanceof ProblemDetail pd) {
+            List<Map<String, String>> errors = new ArrayList<>();
+            for (ParameterValidationResult result : ex.getParameterValidationResults()) {
+                String field = result.getMethodParameter().getParameterName();
+                for (MessageSourceResolvable error : result.getResolvableErrors()) {
+                    errors.add(Map.of("field", String.valueOf(field), "message", String.valueOf(error.getDefaultMessage())));
+                }
+            }
+            pd.setProperty("errors", errors);
+        }
+        return response;
+    }
+
+    @Override
+    protected @Nullable ResponseEntity<Object> handleTypeMismatch(TypeMismatchException ex,
+                                                                  HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        ResponseEntity<Object> response = super.handleTypeMismatch(ex, headers, status, request);
+        if (response != null && response.getBody() instanceof ProblemDetail pd) {
+            String field = ex instanceof MethodArgumentTypeMismatchException m ? m.getName() : ex.getPropertyName();
+            pd.setProperty("errors", List.of(Map.of("field", String.valueOf(field), "message", "Invalid value.")));
+        }
+        return response;
+    }
 
     @ExceptionHandler(IllegalTransitionException.class)
     ResponseEntity<ProblemDetail> illegalTransition(IllegalTransitionException ex, WebRequest req) {
@@ -100,6 +141,77 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 "An unexpected error occurred.", req);
     }
 
+    @ExceptionHandler(InvalidCursorException.class)
+    ResponseEntity<ProblemDetail> invalidCursor(InvalidCursorException ex, WebRequest req) {
+        ResponseEntity<ProblemDetail> response = problem(HttpStatus.BAD_REQUEST, "validation-failed",
+                "Validation failed", "One or more parameters are invalid.", req);
+        response.getBody().setProperty("errors", List.of(Map.of("field", "cursor", "message", "Cursor is not valid.")));
+        return response;
+    }
+
+    @ExceptionHandler(UnprocessableRequestException.class)
+    ResponseEntity<ProblemDetail> unprocessableRequest(UnprocessableRequestException ex, WebRequest req) {
+        return problem(HttpStatus.UNPROCESSABLE_ENTITY, "unprocessable", "Unprocessable request", ex.getMessage(), req);
+    }
+
+    @ExceptionHandler(RollbackAlreadyRequestedException.class)
+    ResponseEntity<ProblemDetail> rollbackAlreadyRequested(RollbackAlreadyRequestedException ex, WebRequest req) {
+        return problem(HttpStatus.CONFLICT, "conflict", "Conflict",
+                "A rollback is already pending for this deployment.", req);
+    }
+
+    @ExceptionHandler(IdempotencyKeyReusedException.class)
+    ResponseEntity<ProblemDetail> idempotencyKeyReused(IdempotencyKeyReusedException ex, WebRequest req) {
+        return problem(HttpStatus.UNPROCESSABLE_ENTITY, "idempotency-key-reused", "Idempotency key reused",
+                "This Idempotency-Key was already used with a different request body. Use a new key for a different request.", req);
+    }
+
+    @ExceptionHandler(RequestInProgressException.class)
+    ResponseEntity<ProblemDetail> requestInProgress(RequestInProgressException ex, WebRequest req) {
+        ResponseEntity<ProblemDetail> response = problem(HttpStatus.CONFLICT, "request-in-progress", "Request in progress",
+                "A request with this Idempotency-Key is still being processed. Retry shortly to get its result.", req);
+        return ResponseEntity.status(response.getStatusCode())
+                .header(HttpHeaders.RETRY_AFTER, "1")
+                .body(response.getBody());
+    }
+
+    @ExceptionHandler(InvalidIdempotencyKeyException.class)
+    ResponseEntity<ProblemDetail> invalidIdempotencyKey(InvalidIdempotencyKeyException ex, WebRequest req) {
+        ResponseEntity<ProblemDetail> response = problem(HttpStatus.BAD_REQUEST, "validation-failed",
+                "Validation failed", "One or more parameters are invalid.", req);
+        response.getBody().setProperty("errors", List.of(Map.of("field", "Idempotency-Key",
+                "message", "Must be 1 to 255 printable ASCII characters, without spaces.")));
+        return response;
+    }
+
+    @ExceptionHandler(RedisConnectionFailureException.class)
+    ResponseEntity<ProblemDetail> backingServiceUnavailable(RedisConnectionFailureException ex, WebRequest req) {
+        log.warn("Redis unavailable: {}", ex.getMessage());
+        ResponseEntity<ProblemDetail> response = problem(HttpStatus.SERVICE_UNAVAILABLE, "service-unavailable",
+                "Service unavailable", "A required backing service is unavailable. Retry later.", req);
+        return ResponseEntity.status(response.getStatusCode())
+                .header(HttpHeaders.RETRY_AFTER, "5")
+                .body(response.getBody());
+    }
+
+    @ExceptionHandler(InvalidHeaderException.class)
+    ResponseEntity<ProblemDetail> invalidHeader(InvalidHeaderException ex, WebRequest req) {
+        ResponseEntity<ProblemDetail> response = problem(HttpStatus.BAD_REQUEST, "validation-failed",
+                "Validation failed", "One or more parameters are invalid.", req);
+        response.getBody().setProperty("errors", List.of(Map.of("field", ex.header(), "message", "Must be a UUID.")));
+        return response;
+    }
+
+    @ExceptionHandler(RateLimitedException.class)
+    ResponseEntity<ProblemDetail> rateLimited(RateLimitedException ex, WebRequest req) {
+        long seconds = Math.max(1, (ex.retryAfter().toMillis() + 999) / 1000);   // round up, never 0
+        ResponseEntity<ProblemDetail> response = problem(HttpStatus.TOO_MANY_REQUESTS, "rate-limited", "Too many requests",
+                "The rate limit for this team is exhausted. Retry after the time given in Retry-After.", req);
+        return ResponseEntity.status(response.getStatusCode())
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(seconds))
+                .body(response.getBody());
+    }
+
     private static String constraintName(Throwable t) {
         for (Throwable c = t; c != null; c = c.getCause()) {
             if (c instanceof org.hibernate.exception.ConstraintViolationException cve) {
@@ -135,7 +247,9 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     private String slugFor(Exception ex, HttpStatusCode status) {
-        if (ex instanceof MethodArgumentNotValidException) {
+        if (ex instanceof MethodArgumentNotValidException
+                || ex instanceof HandlerMethodValidationException
+                || ex instanceof TypeMismatchException) {
             return "validation-failed";
         }
         return switch (status.value()) {
