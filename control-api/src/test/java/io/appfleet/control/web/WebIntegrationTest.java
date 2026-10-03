@@ -15,7 +15,7 @@ import org.testcontainers.lifecycle.Startables;
 @SpringBootTest(properties = "management.health.redis.enabled=true")
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-@Import(TestFixtures.class)
+@Import({TestFixtures.class, TestAuth.class})
 public abstract class WebIntegrationTest {
 
     @ServiceConnection

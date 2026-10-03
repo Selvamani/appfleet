@@ -37,7 +37,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
-@Import(TestFixtures.class)
+@Import({TestFixtures.class, TestAuth.class})
 @Testcontainers
 class IdempotencyRedisDownTest {
 

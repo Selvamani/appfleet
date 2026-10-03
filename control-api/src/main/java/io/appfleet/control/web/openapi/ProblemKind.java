@@ -3,6 +3,8 @@ package io.appfleet.control.web.openapi;
 public enum ProblemKind {
     VALIDATION_FAILED(400, "validation-failed", "Validation failed", 0),
     MALFORMED_REQUEST(400, "malformed-request", "Bad Request", 0),
+    UNAUTHORIZED(401, "unauthorized", "Unauthorized", 0),
+    FORBIDDEN(403, "forbidden", "Forbidden", 0),
     NOT_FOUND(404, "not-found", "Not found", 0),
     CONFLICT(409, "conflict", "Conflict", 0),
     ILLEGAL_TRANSITION(409, "illegal-transition", "Illegal state transition", 0),
@@ -35,6 +37,8 @@ public enum ProblemKind {
     public static String responseName(int status) {
         return switch (status) {
             case 400 -> "BadRequest400";
+            case 401 -> "Unauthorized401";
+            case 403 -> "Forbidden403";
             case 404 -> "NotFound404";
             case 409 -> "Conflict409";
             case 422 -> "Unprocessable422";
