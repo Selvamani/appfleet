@@ -1,0 +1,83 @@
+/* Users list */
+.listBody { display: flex; flex-direction: column; gap: 0.6rem; }
+/* SearchField is sized for a row (flex-basis 17rem); in this column it must not grow tall. */
+.listBody > input { flex: none; max-width: none; }
+.users { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.user {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.65rem 0.6rem;
+  border-bottom: 1px solid var(--line-2);
+  color: var(--ink);
+  text-decoration: none;
+}
+.user:hover { background: var(--row-hover); color: var(--ink); }
+.userOn, .userOn:hover { background: var(--selected); box-shadow: inset 3px 0 0 var(--accent); }
+.userText { display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+.userName { font-weight: 600; overflow-wrap: anywhere; }
+.userGrants { font-size: 0.88rem; color: var(--muted); overflow-wrap: anywhere; }
+
+/* User detail */
+.detailHead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.85rem;
+}
+.detailTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1.3rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.h3 { font-size: 0.98rem; font-weight: 600; }
+
+/* Grants */
+.grantForm {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.6rem 0.85rem;
+  align-items: end;
+}
+.grantForm > button { justify-self: start; }
+.roleGuide {
+  border-top: 1px solid var(--line-2);
+  padding-top: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* Rotated key */
+.key {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--info-border);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+/*
+ * Visually hidden column header. The global .sr-only is position: absolute, and DataTable's scroll box is
+ * not positioned, so an .sr-only header escapes the sideways scroll and widens the page on phones.
+ */
+.hiddenHeader {
+  display: inline-block;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

@@ -1,5 +1,7 @@
 appfleet:
   environment: prod
+  docs:
+    public: false
 
 springdoc:
   swagger-ui:

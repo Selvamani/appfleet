@@ -87,12 +87,13 @@ class OpenApiContractTest extends WebIntegrationTest {
     }
 
     @Test
-    void everyOperation_lists400And429() throws Exception {
+    void everyOperation_listsTheGlobalAnswers() throws Exception {
         List<String> bad = new ArrayList<>();
         operations().forEach((k, o) -> {
-            if (!o.path("responses").has("400") || !o.path("responses").has("429")) bad.add(k);
+            for (String s : List.of("400", "401", "403", "429"))
+                if (!o.path("responses").has(s)) bad.add(k + " missing " + s);
         });
-        assertThat(bad).as("operations missing 400 or 429").isEmpty();
+        assertThat(bad).as("operations missing a global answer").isEmpty();
     }
 
     @Test
@@ -150,13 +151,12 @@ class OpenApiContractTest extends WebIntegrationTest {
     }
 
     @Test
-    void teamHeader_isOnEveryOperation_asOptional() throws Exception {
+    void teamHeader_isOnNoOperation() throws Exception {
         List<String> bad = new ArrayList<>();
         operations().forEach((k, o) -> {
-            JsonNode h = header(o, "X-Team-Id");
-            if (h == null || h.path("required").asBoolean()) bad.add(k);
+            if (header(o, "X-Team-Id") != null) bad.add(k);
         });
-        assertThat(bad).as("operations without an optional X-Team-Id").isEmpty();
+        assertThat(bad).as("operations still documenting X-Team-Id").isEmpty();
     }
 
     @Test
@@ -191,16 +191,11 @@ class OpenApiContractTest extends WebIntegrationTest {
         assertThat(in409).contains("conflict", "request-in-progress");
         assertThat(in422).contains("unprocessable", "idempotency-key-reused");
 
-        // every operation: error statuses = 400 + 429 + the statuses of its @ProblemResponses kinds
-        Map<String, HandlerMethod> handlers = new java.util.TreeMap<>();
-        mapping.getHandlerMethods().forEach((info, hm) -> {
-            for (String path : info.getPathPatternsCondition().getPatternValues())
-                for (RequestMethod m : info.getMethodsCondition().getMethods())
-                    if (path.startsWith("/api/v1/")) handlers.put(m + " " + path, hm);
-        });
+        // every operation: error statuses = 400 + 401 + 403 + 429 + the statuses of its @ProblemResponses kinds
+        Map<String, HandlerMethod> handlers = handlers();
         List<String> bad = new ArrayList<>();
         operations().forEach((key, o) -> {
-            Set<String> expected = new TreeSet<>(Set.of("400", "429"));
+            Set<String> expected = new TreeSet<>(Set.of("400", "401", "403", "429"));
             ProblemResponses pr = handlers.get(key).getMethodAnnotation(ProblemResponses.class);
             if (pr != null) for (ProblemKind k : pr.value()) expected.add(String.valueOf(k.status()));
             Set<String> actual = new TreeSet<>();
@@ -208,6 +203,7 @@ class OpenApiContractTest extends WebIntegrationTest {
             if (!actual.equals(expected)) bad.add(key + " expected " + expected + " but was " + actual);
         });
         assertThat(bad).as("operations whose error statuses differ from their @ProblemResponses").isEmpty();
+
     }
 
     private static Set<String> names(JsonNode response) {
@@ -215,5 +211,54 @@ class OpenApiContractTest extends WebIntegrationTest {
         response.path("content").path("application/problem+json").path("examples").propertyNames().forEach(s::add);
         return s;
     }
+
+    @Test
+    void bearerAuthScheme_isDeclared() throws Exception {
+        JsonNode s = spec().path("components").path("securitySchemes").path("bearerAuth");
+        assertThat(s.path("type").asString()).isEqualTo("http");
+        assertThat(s.path("scheme").asString()).isEqualTo("bearer");
+        assertThat(s.path("bearerFormat").asString()).isEqualTo("JWT");
+    }
+
+    @Test
+    void security_isGlobal_andNoOperationOverridesIt() throws Exception {
+        JsonNode sec = spec().path("security");
+        assertThat(sec.isArray() && sec.size() == 1 && sec.get(0).has("bearerAuth")).as("global security").isTrue();
+        List<String> bad = new ArrayList<>();
+        operations().forEach((k, o) -> { if (o.has("security")) bad.add(k); });
+        assertThat(bad).as("operations with their own security").isEmpty();
+    }
+
+    @Test
+    void unauthorizedResponse_documentsTheChallenge() throws Exception {
+        assertThat(spec().path("components").path("responses").path("Unauthorized401")
+                .path("headers").has("WWW-Authenticate")).isTrue();
+    }
+
+    @Test
+    void everyOperation_statesItsPermission() throws Exception {
+        Map<String, HandlerMethod> handlers = handlers();
+        List<String> bad = new ArrayList<>();
+        operations().forEach((key, o) -> {
+            String want = java.util.regex.Pattern.compile("hasAuthority\\('([a-z]+:[a-z]+)'\\)")
+                    .matcher(handlers.get(key).getMethodAnnotation(
+                            org.springframework.security.access.prepost.PreAuthorize.class).value())
+                    .results().map(m -> m.group(1)).findFirst().orElse("?");
+            if (!want.equals(o.path("x-required-permission").asString())
+                    || !o.path("description").asString().contains("`" + want + "`")) bad.add(key + " want " + want);
+        });
+        assertThat(bad).as("operations whose permission is not stated").isEmpty();
+    }
+
+    private Map<String, HandlerMethod> handlers() {
+        Map<String, HandlerMethod> handlers = new java.util.TreeMap<>();
+        mapping.getHandlerMethods().forEach((info, hm) -> {
+            for (String path : info.getPathPatternsCondition().getPatternValues())
+                for (RequestMethod m : info.getMethodsCondition().getMethods())
+                    if (path.startsWith("/api/v1/")) handlers.put(m + " " + path, hm);
+        });
+        return handlers;
+    }
+
 
 }

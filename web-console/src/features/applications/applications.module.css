@@ -1,0 +1,54 @@
+/* Application screens. Colours only through tokens.css variables. */
+
+.h1 { font-size: 1.72rem; font-weight: 600; letter-spacing: -0.01em; }
+.h2 { font-size: 1.07rem; font-weight: 600; }
+.h3 { font-size: 1.07rem; font-weight: 600; overflow-wrap: anywhere; }
+.muted { color: var(--muted); }
+.small { font-size: 0.9rem; color: var(--muted); }
+
+.notFound { display: flex; flex-direction: column; gap: 0.6rem; align-items: flex-start; }
+
+/* Page width limit for forms, so a field never stretches across a 2K screen. */
+.limit { width: 100%; max-width: 1680px; }
+/* The register form is short; a narrower page keeps the form card from leaving a blank half. */
+.limitNarrow { width: 100%; max-width: 78rem; }
+
+.sectionHead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.15rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.85rem;
+}
+
+.form { display: flex; flex-direction: column; gap: 1.15rem; }
+.formNarrow { max-width: 40rem; }
+.textarea {
+  width: 100%;
+  min-height: 5.5rem;
+  border: 1px solid var(--field-border);
+  border-radius: var(--radius-s);
+  padding: 0.55rem 0.7rem;
+  background: var(--surface);
+  color: var(--ink);
+  resize: vertical;
+}
+.textareaInvalid { border-color: var(--bad); }
+.fieldLabel { display: block; font-size: 0.9rem; font-weight: 600; color: var(--ink-2); }
+.field { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
+.hint { font-size: 0.86rem; color: var(--muted); }
+.error { font-size: 0.86rem; color: var(--bad-ink); font-weight: 500; }
+.mono input, input.mono { font-family: var(--font-mono); font-size: 0.93rem; }
+
+.steps { margin: 0; padding-left: 1.3rem; display: flex; flex-direction: column; gap: 0.6rem; }
+
+/* Environment cards */
+.envCard { display: flex; flex-direction: column; gap: 0.85rem; }
+.envHead { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; justify-content: space-between; }
+.version { font-family: var(--font-mono); font-size: 1.43rem; font-weight: 500; overflow-wrap: anywhere; line-height: 1.25; }
+.inline { display: inline-flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.envFoot { display: flex; flex-direction: column; gap: 0.6rem; }
+.nothing { color: var(--ink-2); padding: 0.4rem 0; }
+
+.cardStack { display: flex; flex-direction: column; gap: 0.85rem; }

@@ -16,7 +16,7 @@ import java.util.List;
 public class RateLimiter {
 
     private static final Logger log = LoggerFactory.getLogger(RateLimiter.class);
-    private static final String PREFIX = "ratelimit:v1:team:";
+    private static final String PREFIX = "ratelimit:v1:user:";
     private static final RedisScript<List> TAKE_TOKEN = RedisScript.of(new ClassPathResource("ratelimit/take-token.lua"), List.class);
 
     private final StringRedisTemplate redis;
@@ -27,9 +27,9 @@ public class RateLimiter {
         this.limits = properties.rateLimit();
     }
 
-    public RateLimitDecision tryConsume(String team) {
+    public RateLimitDecision tryConsume(String caller) {
         try {
-            List<?> r = redis.execute(TAKE_TOKEN, List.of(PREFIX + team),
+            List<?> r = redis.execute(TAKE_TOKEN, List.of(PREFIX + caller),
                     String.valueOf(limits.capacity()), String.valueOf(limits.refillPerSecond()));
             return new RateLimitDecision(((Long) r.get(0)) == 1, (Long) r.get(1), Duration.ofMillis((Long) r.get(2)));
         } catch (DataAccessException e) {

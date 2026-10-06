@@ -7,6 +7,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtException;
+import org.springframework.security.oauth2.jwt.JwtValidationException;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -137,5 +138,16 @@ class JwtSecurityAutoConfigurationTest {
         assertThat(res.getContentAsString(StandardCharsets.UTF_8)).contains(JwtSecurityAutoConfiguration.class.getName());
     }
 
+    @Test
+    void missingSub_rejected() {
+        decoder(d -> assertThatThrownBy(() -> d.decode(user().withoutSub().sign()))
+                .isInstanceOf(JwtValidationException.class).hasMessageContaining("sub"));
+    }
+
+    @Test
+    void blankSub_rejected() {
+        decoder(d -> assertThatThrownBy(() -> d.decode(user().blankSub().sign()))
+                .isInstanceOf(JwtValidationException.class).hasMessageContaining("sub"));
+    }
 }
 

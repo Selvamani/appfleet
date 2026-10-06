@@ -2,6 +2,7 @@ package io.appfleet.control.task;
 
 import io.appfleet.control.common.NotFoundException;
 import io.appfleet.control.deployment.DeploymentRepository;
+import io.appfleet.control.security.TeamAccess;
 import io.appfleet.control.task.web.TaskResponse;
 import io.appfleet.control.web.CursorCodec;
 import io.appfleet.control.web.CursorPage;
@@ -20,14 +21,18 @@ public class TaskService {
 
     private final TaskRepository taskRepository;
     private final DeploymentRepository deploymentRepository;
+    private final TeamAccess teamAccess;
 
-    public TaskService(TaskRepository taskRepository, DeploymentRepository deploymentRepository) {
+    public TaskService(TaskRepository taskRepository, DeploymentRepository deploymentRepository, TeamAccess teamAccess) {
         this.taskRepository = taskRepository;
         this.deploymentRepository = deploymentRepository;
+        this.teamAccess = teamAccess;
     }
 
     @Transactional(readOnly = true)
     public TaskResponse get(UUID id) {
+        UUID owner = taskRepository.findOwnerIdById(id).orElseThrow(() -> new NotFoundException("Task", id));
+        teamAccess.require("deployment:read", owner, () -> new NotFoundException("Task", id));
         Task task = taskRepository.findById(id).orElseThrow(() -> new NotFoundException("Task", id));
         return TaskResponse.from(task);
     }
@@ -54,8 +59,7 @@ public class TaskService {
     }
 
     private void requireDeployment(UUID deploymentId) {
-        if (!deploymentRepository.existsById(deploymentId)) {
-            throw new NotFoundException("Deployment", deploymentId);
-        }
+        UUID owner = deploymentRepository.findOwnerTeamById(deploymentId).orElseThrow(() -> new NotFoundException("Deployment", deploymentId));
+        teamAccess.require("deployment:read", owner, () -> new NotFoundException("Task", deploymentId));
     }
 }

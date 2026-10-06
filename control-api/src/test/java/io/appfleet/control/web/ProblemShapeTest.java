@@ -118,9 +118,6 @@ public class ProblemShapeTest {
         @GetMapping("/probe/rate-limited")
         void rateLimited() { throw new RateLimitedException(Duration.ofMillis(1500)); }
 
-        @GetMapping("/probe/invalid-header")
-        void invalidHeader() { throw new InvalidHeaderException("X-Team-Id"); }
-
         @GetMapping("/probe/rate-limited-zero")
         void rateLimitedZero() { throw new RateLimitedException(Duration.ZERO); }
 
@@ -257,14 +254,6 @@ public class ProblemShapeTest {
         assertProblem(result, 400, "validation-failed", "/probe/invalid-cursor");
         result.andExpect(jsonPath("$.errors[0].field").value("cursor"))
                 .andExpect(jsonPath("$.errors[0].message").isNotEmpty());
-    }
-
-    @Test
-    void invalidHeader_is400_withHeaderAsField() throws Exception {
-        ResultActions result = mockMvc.perform(get("/probe/invalid-header"));
-        assertProblem(result, 400, "validation-failed", "/probe/invalid-header");
-        result.andExpect(jsonPath("$.errors[0].field").value("X-Team-Id"))
-                .andExpect(jsonPath("$.errors[0].message").value("Must be a UUID."));
     }
 
 }

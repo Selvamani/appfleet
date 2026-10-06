@@ -7,6 +7,8 @@ import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.media.*;
 import io.swagger.v3.oas.models.responses.ApiResponse;
+import io.swagger.v3.oas.models.security.SecurityRequirement;
+import io.swagger.v3.oas.models.security.SecurityScheme;
 import org.springdoc.core.models.GroupedOpenApi;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -29,7 +31,11 @@ public class OpenApiConfig {
         Map<Integer, List<ProblemKind>> byStatus = Arrays.stream(ProblemKind.values())
                 .collect(Collectors.groupingBy(ProblemKind::status, TreeMap::new, Collectors.toList()));
         byStatus.forEach((status, kinds) -> c.addResponses(ProblemKind.responseName(status), statusResponse(kinds)));
-        return api.components(c);
+        c.addSecuritySchemes("bearerAuth", new SecurityScheme()
+                .type(SecurityScheme.Type.HTTP)
+                .scheme("bearer")
+                .bearerFormat("JWT").description("An access token issued for control-api. Send it as `Authorization: Bearer <token>`."));
+        return api.components(c).addSecurityItem(new SecurityRequirement().addList("bearerAuth"));
     }
 
     @Bean
@@ -72,7 +78,12 @@ public class OpenApiConfig {
         if (!withRetry.isEmpty())
             r.addHeaderObject("Retry-After", new Header()
                     .description("Seconds to wait. Set by: " + withRetry.stream().map(ProblemKind::slug).collect(Collectors.joining(", ")))
-                    .schema(new IntegerSchema()).example(withRetry.get(0).retryAfter()));   // an int, not a String
+                    .schema(new IntegerSchema()).example(withRetry.get(0).retryAfter()));   // an int, not
+        // The 401 challenge is set by ProblemAuthenticationEntryPoint, not by a controller, so springdoc cannot see it.
+        if (kinds.stream().anyMatch(k -> k.status() == 401))
+            r.addHeaderObject("WWW-Authenticate", new Header()
+                    .description("`Bearer`, or `Bearer error=\"invalid_token\"` when a token was sent and rejected.")
+                    .schema(new StringSchema()).example("Bearer"));// a String
         return r;
     }
 }

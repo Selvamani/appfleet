@@ -2133,7 +2133,7 @@
         readouts(rType, rTreat, rRetry, rCid),
         verdict.el,
         details('The screen code that chooses the treatment', screenCode),
-        note('Titles and details follow ApiExceptionHandler and the mock. forbidden (S4) and rate-limited (S3.6, designed) are not built in control-api yet; their texts and the 12 s Retry-After are illustrative. Countdowns: 1 simulated second = 250 ms.')
+        note('Titles and details follow ApiExceptionHandler and the mock. forbidden (S4) is not built in control-api yet. rate-limited is built (S3.6), but its text here and the 12 s Retry-After are illustrative: the real answer has no team name and Retry-After is 1 s with the defaults. Countdowns: 1 simulated second = 250 ms.')
       );
 
       function describe(a, detail) {

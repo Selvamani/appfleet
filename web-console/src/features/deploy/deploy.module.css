@@ -1,0 +1,20 @@
+/* New deployment screen. Colours only through tokens.css variables. */
+
+.limit { width: 100%; max-width: 1680px; }
+.form { display: flex; flex-direction: column; gap: 1.3rem; }
+.h2 { font-size: 1.07rem; font-weight: 600; }
+.small { font-size: 0.9rem; color: var(--muted); }
+
+.legendError { display: block; margin-top: 0.2rem; font-size: 0.86rem; font-weight: 500; color: var(--bad-ink); }
+
+.releaseList { display: flex; flex-direction: column; gap: 0.5rem; }
+.releaseMeta { font-size: 0.9rem; color: var(--muted); }
+
+.envs { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.envName { font-weight: 600; }
+.cellLine { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; min-height: 1.72rem; }
+.freshLine { display: flex; flex-wrap: wrap; gap: 0.4rem 0.6rem; align-items: center; font-size: 0.9rem; color: var(--muted); }
+
+.mono input { font-family: var(--font-mono); font-size: 0.93rem; }
+
+.steps { margin: 0; padding-left: 1.3rem; display: flex; flex-direction: column; gap: 0.6rem; }

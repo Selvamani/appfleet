@@ -1,7 +1,7 @@
 /*
  * labs-postgres.js: the "Postgres and JPA" lessons for "How Appfleet works".
  *
- * Eight lessons, one AF.register call each. Every simulation keeps a small model in JS,
+ * Nine lessons, one AF.register call each. Every simulation keeps a small model in JS,
  * builds its DOM from AF.h and AF.ui atoms, and schedules time only through ctx.
  * Facts and measurements come from docs/design/control-api and docs/specs/project
  * as of 2026-10-02. Anything that was not measured is labelled illustrative in the UI.
@@ -2227,6 +2227,186 @@
         log.el
       );
       reset();
+    }
+  });
+
+  // =====================================================================
+  // 9. How an index speeds up a JPA query
+  // =====================================================================
+  AF.register({
+    id: 'pg-indexes',
+    group: 'postgres',
+    order: 9,
+    title: 'How an index speeds up a JPA query',
+    question: 'JPA never mentions an index, so how did two small migrations turn 123 ms, 10 seconds and 7 ms into almost nothing, and what can an index not fix?',
+    status: 'built',
+    slice: 'S1, S3.4, S4.4',
+    where: [
+      'V4__add_task_deployment_index.sql, V5__add_application_owner_team_index.sql',
+      'TaskRepository.findByDeployment_IdAndIdGreaterThanOrderByIdAsc, ApplicationRepository.findByOwnerTeamIdInOrderByIdAsc',
+      'ApplicationOwnerIndexTest (red without V5, green with it)',
+      'docs/design/control-api/control-api-s3-4-task-history.md, section 12; control-api-s4-4-idor.md, section 9.7'
+    ],
+    idea: [
+      'An index is a database object, not a JPA one. A repository method becomes SQL with a WHERE and an ORDER BY, and the index decides whether Postgres answers it by seeking to a few entries or by walking rows and throwing most of them away. So the loop is always the same: switch on org.hibernate.SQL to see the statement JPA really sends, then run it under EXPLAIN (ANALYZE) and look for a primary-key walk with thousands of "Rows Removed by Filter".',
+      'Appfleet hit three shapes. Filter plus sort: the task history walked task_pkey for 123 ms until V4 added (deployment_id, id), then 0.04 ms. Foreign key: task.deployment_id references deployment, and Postgres does not index the referencing column by itself, so deleting 600 deployments scanned task for each one, 10,080 ms, then 64 ms with the same index. Team filter: the S4.4 list adds WHERE owner_team_id IN (...) ORDER BY id, and V5 adds (owner_team_id, id). In a 200,000-application experiment that is 7 to 10 ms without it and 0.03 to 0.2 ms with it.',
+      'Order the columns equality first, then the one you range over or sort by: the index then hands back one team’s or one deployment’s rows already in id order, with no sort. And an index fixes only the cost of one statement. It does not reduce how many statements JPA sends (N+1 needs @EntityGraph or JOIN FETCH), it slows every insert and update a little, and on 21 rows Postgres rightly ignores it.'
+    ],
+    terms: [
+      ['Index scan', 'Postgres seeks into the index and reads only matching entries. The goal.'],
+      ['Primary-key walk with a filter', 'Postgres reads rows in id order and discards those that do not match. Cost grows with the table. "Rows Removed by Filter" in EXPLAIN is the sign.'],
+      ['Composite index', 'One index over several columns. Equality columns first, then the range or sort column; the leftmost column must be usable for the rest to help.'],
+      ['Foreign-key check', 'On every delete of a parent row, Postgres looks for child rows. Without an index on the child column that is a scan.'],
+      ['N+1', 'One query for the parents plus one per parent for a lazy association. An index makes each query faster, not fewer.']
+    ],
+    tryIt: [
+      'Pick "Task history, first page" and switch "Index" from "No index" to "Right index": 123 ms becomes 0.040 ms, and rows read fall from 862,985 to 21.',
+      'Pick "Delete 600 deployments": the foreign key makes Postgres scan task for every deleted row, 10,080 ms against 64 ms.',
+      'Pick "Team-filtered list" and compare. The numbers come from a 200,000-row experiment in a rolled-back transaction, not from the app’s own 21 applications.',
+      'Pick "N+1" and switch the index on and off: the statement count stays 51. Turn on "@EntityGraph" and it becomes 1.',
+      'Choose "Wrong column order" anywhere: the lab says "not measured" and explains why the leftmost-column rule defeats it.'
+    ],
+    breakIt: 'Create the index with the columns the wrong way round, (id, deployment_id). Postgres cannot seek on deployment_id because it is the second column, so it falls back to the primary-key walk and the migration looks done while nothing improved. This was not measured in Appfleet; the lab labels it so.',
+    say: 'JPA never sees an index, so I read the SQL it generates with org.hibernate.SQL and run it under EXPLAIN ANALYZE: V4 (deployment_id, id) took the task history from 123 ms to 0.04 ms and the 600-deployment delete from 10 s to 64 ms because the foreign key had no index, and V5 (owner_team_id, id) removed a 7 to 10 ms primary-key walk from the team-filtered list, while N+1 still needed an EntityGraph.',
+    quiz: {
+      q: 'task.deployment_id has a foreign key to deployment. Before V4, why did deleting 600 deployments take about 10 seconds?',
+      options: [
+        'JPA cascades every delete to each task row one at a time',
+        'Postgres does not index the referencing column of a foreign key, so each deleted deployment made it scan task to check that no task still referenced it',
+        'The delete held a lock on the whole deployment table',
+        'The transaction log had to be flushed 600 times'
+      ],
+      answer: 1,
+      why: 'A foreign key adds the check, not an index on the child column. With idx_task_deployment_id the check is an index lookup per deployment: 64 ms in total. The seed deleted the deployments with SQL, so JPA cascades and locks played no part.'
+    },
+    mount(el, ctx) {
+      // Every number is a measurement from docs/design/control-api (S3.4 section 12, S4.4 section 9.7).
+      // 'team' comes from a 200,000-row experiment in a rolled-back transaction, not from the app's 21 rows.
+      const QUERIES = {
+        hist: {
+          name: 'Task history, first page',
+          index: 'idx_task_deployment_id (deployment_id, id)',
+          sql: '-- TaskRepository.findByDeployment_IdOrderByIdAsc(deploymentId, Limit.of(21))\nSELECT * FROM task\n WHERE deployment_id = :d\n ORDER BY id\n LIMIT 21;   -- a quiet deployment: 570 of 1,200,101 tasks',
+          none: { ms: 123, read: 862985, plan: 'Scan on task_pkey, 862,964 rows removed by the filter', tone: 'bad', text: '123 ms. Without the index Postgres walked task_pkey in id order and discarded 862,964 rows that belong to other deployments.' },
+          right: { ms: 0.040, read: 21, plan: 'Index scan on idx_task_deployment_id: seek to this deployment, read 21 entries', tone: 'ok', text: '0.040 ms. Entries for one deployment sit together and already in id order, so Postgres reads 21 and stops.' }
+        },
+        offset: {
+          name: 'Task history, offset page 10,000',
+          index: 'idx_task_deployment_id (deployment_id, id)',
+          sql: '-- GET .../tasks/by-offset?page=10000&size=20 on the hot deployment (250,000 tasks)\nSELECT * FROM task\n WHERE deployment_id = :d\n ORDER BY id\n LIMIT 21 OFFSET 200000;',
+          none: { ms: 54.7, read: 1200101, plan: 'Parallel seq scan of all tasks, then a sort that spilled about 20 MB to disk', tone: 'bad', text: '54.7 ms: Postgres scanned every task, sorted this deployment’s 250,000 on disk, then skipped 200,000.' },
+          right: { ms: 17.306, read: 200021, plan: 'Index scan on idx_task_deployment_id, reading every skipped entry', tone: 'warn', text: '17.3 ms: better, but OFFSET 200000 still reads 200,021 index entries. An index cannot make skipping free; the cursor of the pagination lesson can.' }
+        },
+        fk: {
+          name: 'Delete 600 deployments',
+          index: 'idx_task_deployment_id (deployment_id, id)',
+          sql: '-- the foreign key task.deployment_id -> deployment(id) forces, per deleted deployment:\n--   "is any task still pointing at this id?"\nDELETE FROM deployment WHERE id IN (:600_ids);',
+          none: { ms: 10080, read: null, plan: 'Seq scan of task for every deleted deployment (the foreign-key check)', tone: 'bad', text: '10,080 ms. A foreign key does not index the referencing column, so 600 deletes meant 600 scans of a 1.2 million-row table.' },
+          right: { ms: 64, read: null, plan: 'Index lookup on idx_task_deployment_id for each deleted deployment', tone: 'ok', text: '64 ms. The foreign-key check is now an index lookup per deployment. The same V4 index that fixed the history query fixed this.' }
+        },
+        team: {
+          name: 'Team-filtered application list',
+          index: 'idx_application_owner_team_id (owner_team_id, id)',
+          sql: '-- ApplicationRepository.findByOwnerTeamIdInOrderByIdAsc(teamIds, Limit.of(21))   (S4.4)\nSELECT * FROM application\n WHERE owner_team_id IN (:t1, :t2, :t3)\n ORDER BY id\n LIMIT 21;   -- experiment: 200,000 applications over 2,000 teams, caller in 3 teams',
+          none: { ms: 7.264, read: 14768, plan: 'Index scan on application_pkey, 14,747 rows removed by the filter', tone: 'warn', text: '7.3 ms (10.4 ms for a cursor page far from the start). Not a sequential scan: a primary-key walk that filters. It grows with the table.' },
+          right: { ms: 0.194, read: 300, plan: 'Bitmap scan on the (owner_team_id, id) index, 300 rows, top-N sort of 21', tone: 'ok', text: '0.19 ms for three teams, 0.03 ms for one team on a cursor page (index-only scan). Experiment numbers, not the app’s 21 applications.' }
+        },
+        n1: {
+          name: 'N+1: deployments with their tasks',
+          index: 'idx_task_deployment_id (deployment_id, id)',
+          sql: '-- DeploymentService.listAllNaive(): 1 query for the deployments,\n-- then one query per deployment when the lazy tasks are touched\nSELECT * FROM deployment;                     -- 1\nSELECT * FROM task WHERE deployment_id = ?;   -- x 50'
+        }
+      };
+      const WRONG = 'Not measured. With (id, deployment_id) the condition on deployment_id is on the second column, so Postgres cannot seek on it and falls back to the primary-key walk of the "No index" case. Pick another index to see a measured case.';
+
+      const fmtMs = v => (v >= 1000 ? fmt(Math.round(v)) : v) + ' ms';
+      const verdict = ui.verdict();
+      const sqlBox = ui.code('', 'JPA and the SQL it sends');
+      const plan = h('p', { class: 'small' });
+      const rMs = ui.readout('Time');
+      const rRead = ui.readout('Rows read');
+      const rGain = ui.readout('Speed-up');
+      const rIdx = ui.readout('Index');
+      let shownMs = 0;
+      let shownRead = 0;
+      const barMs = ui.bar({ label: 'Time (log scale)', max: 6, value: 0, format: () => (shownMs ? fmtMs(shownMs) : 'not measured') });
+      const barRead = ui.bar({ label: 'Rows read (root scale)', max: Math.sqrt(1200101), value: 0, format: () => (shownRead ? fmt(shownRead) : 'not recorded') });
+
+      const q = ui.choice('Query', [
+        { value: 'hist', label: 'Task history, first page' },
+        { value: 'offset', label: 'Offset page 10,000' },
+        { value: 'fk', label: 'Delete 600 deployments' },
+        { value: 'team', label: 'Team-filtered list' },
+        { value: 'n1', label: 'N+1' }
+      ], 'hist', update);
+      const idx = ui.choice('Index', [
+        { value: 'none', label: 'No index' },
+        { value: 'right', label: 'Right index' },
+        { value: 'wrong', label: 'Wrong column order' }
+      ], 'none', update);
+      const eg = ui.toggle('@EntityGraph on the query', false, update);
+
+      function update() {
+        const key = q.get();
+        const Q = QUERIES[key];
+        const isN1 = key === 'n1';
+        eg.el.style.display = isN1 ? '' : 'none';
+        setCode(sqlBox, Q.sql);
+        const wrongName = key === 'team' ? '(id, owner_team_id)' : '(id, deployment_id)';
+        rIdx.set(idx.get() === 'none' ? 'none' : idx.get() === 'wrong' ? wrongName : Q.index.split(' ')[0]);
+
+        if (isN1) {
+          const stmts = eg.get() ? 1 : 51;
+          shownMs = 0;
+          shownRead = 0;
+          barMs.set(0);
+          barRead.set(0);
+          rMs.set('not measured');
+          rRead.set(stmts + (stmts === 1 ? ' statement' : ' statements'), eg.get() ? 'ok' : 'bad');
+          rGain.set(eg.get() ? '51 to 1 statements' : '—');
+          plan.textContent = 'Plan: the index changes how fast each of the ' + stmts + ' statement(s) runs, never how many JPA sends.';
+          verdict.set(eg.get() ? 'ok' : 'bad', eg.get()
+            ? '1 statement with @EntityGraph (measured in the N+1 drill: 51 naive, 1 with JOIN FETCH, 1 with EntityGraph, 3 with @BatchSize(25)). The index is irrelevant to this fix.'
+            : '51 statements, with or without an index. An index speeds each one up; only a fetch plan (@EntityGraph, JOIN FETCH) sends fewer. Per-statement time was not measured here.');
+          return;
+        }
+
+        if (idx.get() === 'wrong') {
+          shownMs = 0;
+          shownRead = 0;
+          barMs.set(0);
+          barRead.set(0);
+          rMs.set('not measured');
+          rRead.set('—');
+          rGain.set('—');
+          plan.textContent = 'Plan: not measured';
+          verdict.set('idle', key === 'team' ? WRONG.replace('(id, deployment_id)', '(id, owner_team_id)').replace('deployment_id is on', 'owner_team_id is on') : WRONG);
+          return;
+        }
+
+        const r = Q[idx.get()];
+        shownMs = r.ms;
+        shownRead = r.read || 0;
+        barMs.set(Math.log10(r.ms / 0.01), r.tone);
+        barRead.set(r.read ? Math.sqrt(r.read) : 0, r.tone);
+        rMs.set(fmtMs(r.ms), r.tone);
+        rRead.set(r.read ? fmt(r.read) : 'not recorded', r.read ? r.tone : null);
+        const gain = Q.none.ms / Q.right.ms;
+        rGain.set(idx.get() === 'right' ? '×' + (gain >= 100 ? fmt(Math.round(gain)) : gain.toFixed(1)) + ' faster than no index' : '—');
+        plan.textContent = 'Plan: ' + r.plan;
+        verdict.set(r.tone, r.text);
+      }
+
+      el.append(
+        controls(q.el, idx.el, eg.el),
+        stage(h('div', { class: 'sim-cols' },
+          ui.panel('Work for this query', barMs.el, barRead.el, plan),
+          ui.panel('JPA to SQL', sqlBox))),
+        readouts(rMs, rRead, rGain, rIdx),
+        note('Measured: PostgreSQL 16, the S3.4 seed of 1,200,101 tasks (history, offset and delete). The team list is a 200,000-application experiment in a rolled-back transaction, because the dev database has only 21 applications. N+1 shows statement counts, not times. Indexes also cost: every insert and update maintains each one, so add one for a query you have seen be slow.'),
+        verdict.el
+      );
+      update();
     }
   });
 })();

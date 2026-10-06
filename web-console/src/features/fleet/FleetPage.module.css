@@ -1,0 +1,31 @@
+.stuckList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.stuck {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1.15rem;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--surface-sunk);
+  padding: 0.7rem 0.85rem;
+}
+.stuckText { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; flex: 1 1 18rem; }
+.stuckTitle { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.6rem; overflow-wrap: anywhere; }
+.stuckMeta { font-size: 0.9rem; color: var(--muted); overflow-wrap: anywhere; }
+
+.projState { display: flex; flex-direction: column; align-items: flex-start; gap: 0.3rem; }
+.projNote { font-size: 0.86rem; color: var(--muted); }
+
+/*
+ * Visually hidden column header. The global .sr-only is position: absolute, and DataTable's scroll box is
+ * not positioned, so an .sr-only header escapes the sideways scroll and widens the page on phones.
+ */
+.hiddenHeader {
+  display: inline-block;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

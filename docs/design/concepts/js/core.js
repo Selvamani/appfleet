@@ -20,6 +20,7 @@
     { id: 'redis', title: 'Redis', blurb: 'Not just a cache: keys that stop duplicates, buckets, leases, fast reads.' },
     { id: 'kafka', title: 'Kafka', blurb: 'Moving work between services without losing it or doing it twice.' },
     { id: 'spring', title: 'Spring', blurb: 'What the framework does for you, and where it quietly does not.' },
+    { id: 'testing', title: 'Testing', blurb: 'How each claim in these docs was proved: red first, real databases, and checks that can fail.' },
     { id: 'security', title: 'Security', blurb: 'Who you are, and what you may do to which object.' },
     { id: 'architecture', title: 'Architecture', blurb: 'Why the system is split this way, and how it behaves under load and failure.' }
   ];

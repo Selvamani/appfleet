@@ -1,0 +1,10 @@
+.root { display: inline-flex; max-width: 100%; }
+.confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  max-width: 100%;
+}
+.prompt { font-size: 0.9rem; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.buttons { display: inline-flex; flex-wrap: wrap; gap: 0.35rem; }

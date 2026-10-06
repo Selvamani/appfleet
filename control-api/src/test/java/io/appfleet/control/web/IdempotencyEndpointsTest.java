@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -42,6 +43,10 @@ class IdempotencyEndpointsTest extends WebIntegrationTest {
         return UUID.randomUUID().toString();
     }
 
+    private static String scoped(String key) {
+        return REDIS_PREFIX + TestAuth.USER + ":" + key;       // the default token's sub
+    }
+
     private Response send(CreateDeploymentRequest body, String key) throws Exception {
         MockHttpServletRequestBuilder req = post(URL).contentType(MediaType.APPLICATION_JSON)
                 .content(json.writeValueAsString(body));
@@ -66,13 +71,31 @@ class IdempotencyEndpointsTest extends WebIntegrationTest {
     }
 
     private IdempotencyRecord record(String key) {
-        String value = redis.opsForValue().get(REDIS_PREFIX + key);
+        String value = redis.opsForValue().get(scoped(key));
         return value == null ? null : json.readValue(value, IdempotencyRecord.class);
     }
 
     /** Same rule as IdempotencyExecutor: SHA-256 over the JSON of the request record. Change both together. */
     private String fingerprint(CreateDeploymentRequest request) throws Exception {
         return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(json.writeValueAsBytes(request)));
+    }
+
+    private ResultActions postWithKey(UUID caller, String key, String json) throws Exception {
+        return mockMvc.perform(post(URL)
+                .header("Authorization", "Bearer " + TestAuth.tokenFor(caller))
+                .header("Idempotency-Key", key)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json));
+    }
+
+    /** Like send(), but as a specific caller, so two callers can share an Idempotency-Key. */
+    private Response sendAs(UUID caller, CreateDeploymentRequest body, String key) throws Exception {
+        MockHttpServletRequestBuilder req = post(URL)
+                .header("Authorization", "Bearer " + TestAuth.tokenFor(caller))
+                .header("Idempotency-Key", key)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(body));
+        return toResponse(mockMvc.perform(req).andReturn().getResponse());
     }
 
     @Test
@@ -88,7 +111,7 @@ class IdempotencyEndpointsTest extends WebIntegrationTest {
         assertThat(stored.state()).isEqualTo(IdempotencyRecord.State.COMPLETED);
         assertThat(stored.owner()).isNull();
         assertThat(stored.response()).contains(r.deploymentId());
-        assertThat(redis.getExpire(REDIS_PREFIX + key, TimeUnit.MINUTES)).isBetween(23 * 60L, 24 * 60L);
+        assertThat(redis.getExpire(scoped(key), TimeUnit.MINUTES)).isBetween(23 * 60L, 24 * 60L);
     }
 
     @Test
@@ -151,7 +174,7 @@ class IdempotencyEndpointsTest extends WebIntegrationTest {
         TestFixtures.Fixture f = fixtures.fixture();
         String key = newKey();
         String inProgress = json.writeValueAsString(IdempotencyRecord.inProgress("test-owner", fingerprint(f.request())));
-        assertThat(store.claim("deployments:" + key, inProgress, Duration.ofSeconds(30))).isNull();
+        assertThat(store.claim("deployments:" + TestAuth.USER + ":" + key, inProgress, Duration.ofSeconds(30))).isNull();
 
         MockHttpServletResponse r = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", key).content(json.writeValueAsString(f.request()))).andReturn().getResponse();
@@ -198,7 +221,7 @@ class IdempotencyEndpointsTest extends WebIntegrationTest {
         Response first = send(unknownApp, key);
         assertThat(first.status()).isEqualTo(422);
         assertThat(first.type()).isEqualTo(PROBLEM + "unprocessable");
-        assertThat(redis.hasKey(REDIS_PREFIX + key)).isFalse();
+        assertThat(redis.hasKey(scoped(key))).isFalse();
 
         Response retry = send(unknownApp, key);
         assertThat(retry.status()).isEqualTo(422);                 // not 409 request-in-progress
@@ -214,7 +237,7 @@ class IdempotencyEndpointsTest extends WebIntegrationTest {
 
         assertThat(r.status()).isEqualTo(409);
         assertThat(r.type()).isEqualTo(PROBLEM + "conflict");
-        assertThat(redis.hasKey(REDIS_PREFIX + key)).isFalse();
+        assertThat(redis.hasKey(scoped(key))).isFalse();
     }
 
     @Test
@@ -239,5 +262,65 @@ class IdempotencyEndpointsTest extends WebIntegrationTest {
         assertThat((String) JsonPath.read(r.getContentAsString(), "$.type")).isEqualTo(PROBLEM + "validation-failed");
         assertThat((List<String>) JsonPath.read(r.getContentAsString(), "$.errors[*].field")).containsExactly("Idempotency-Key");
         assertThat(deploymentsFor(f)).isZero();
+    }
+
+    @Test
+    void differentCaller_sameKey_differentBody_isNotRejected() throws Exception {
+        TestFixtures.Fixture forAlice = fixtures.fixture();
+        TestFixtures.Fixture forBob = fixtures.fixture();
+        String key = newKey();
+        UUID alice = UUID.randomUUID();
+        UUID bob = UUID.randomUUID();
+
+        assertThat(sendAs(alice, forAlice.request(), key).status()).isEqualTo(202);
+        Response bobs = sendAs(bob, forBob.request(), key);
+
+        assertThat(bobs.status()).isEqualTo(202);                  // today: 422 idempotency-key-reused, a leak that the key exists
+        assertThat(bobs.replayed()).isEqualTo("false");
+        assertThat(deploymentsFor(forBob)).isEqualTo(1);
+    }
+
+    @Test
+    void differentCaller_sameKey_sameBody_isNotReplayed() throws Exception {
+        TestFixtures.Fixture f = fixtures.fixture();
+        String key = newKey();
+        UUID alice = UUID.randomUUID();
+        UUID bob = UUID.randomUUID();
+
+        Response first = sendAs(alice, f.request(), key);
+        Response bobs = sendAs(bob, f.request(), key);
+
+        assertThat(first.status()).isEqualTo(202);
+        assertThat(bobs.replayed()).isNotEqualTo("true");           // today: "true", A's answer replayed to B
+        assertThat(bobs.taskId()).isNotEqualTo(first.taskId());     // today: A's task id
+        assertThat(bobs.status()).isEqualTo(409);                   // B really tried: an active deployment already exists
+        assertThat(bobs.type()).isEqualTo(PROBLEM + "conflict");
+        assertThat(deploymentsFor(f)).isEqualTo(1);
+    }
+
+    @Test
+    void sameCaller_sameKey_sameBody_stillReplays() throws Exception {
+        TestFixtures.Fixture f = fixtures.fixture();
+        String key = newKey();
+        UUID alice = UUID.randomUUID();
+
+        Response first = sendAs(alice, f.request(), key);
+        Response second = sendAs(alice, f.request(), key);
+
+        assertThat(second.status()).isEqualTo(202);
+        assertThat(second.replayed()).isEqualTo("true");
+        assertThat(second.taskId()).isEqualTo(first.taskId());
+        assertThat(deploymentsFor(f)).isEqualTo(1);
+    }
+
+    @Test
+    void redisKey_isScopedToTheCallersSub() throws Exception {
+        String key = newKey();
+        UUID alice = UUID.randomUUID();
+
+        sendAs(alice, fixtures.fixture().request(), key);
+
+        assertThat(redis.hasKey(REDIS_PREFIX + alice + ":" + key)).isTrue();   // today: false
+        assertThat(redis.hasKey(REDIS_PREFIX + key)).isFalse();                // today: true
     }
 }

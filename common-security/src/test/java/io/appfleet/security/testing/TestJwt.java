@@ -28,12 +28,23 @@ public final class TestJwt {
     private Instant notBefore;                       // null = claim absent
     private RSAPrivateKey key = TestKeys.PRIVATE;
     private Mode mode = Mode.RS256;
+    private boolean omitSub;
+    private String subOverride;          // null = use the user id
+
     private TestJwt(String sub) {
         this.sub = sub;
     }
 
     public static TestJwt forUser(UUID userId) {
         return new TestJwt(userId.toString());
+    }
+
+    public TestJwt withoutSub()  {
+        this.omitSub = true; return this;
+    }
+
+    public TestJwt blankSub()    {
+        this.subOverride = "  "; return this;
     }
 
     // --- claims ---------------------------------------------------------------
@@ -95,11 +106,12 @@ public final class TestJwt {
     public String sign() {
         JWTClaimsSet.Builder b = new JWTClaimsSet.Builder()
                 .issuer(issuer)
-                .subject(sub)
                 .audience(audience)
                 .jwtID(UUID.randomUUID().toString())
                 .issueTime(Date.from(issuedAt))
                 .expirationTime(Date.from(expiresAt));
+        String effectiveSub = subOverride != null ? subOverride : sub;
+        if (!omitSub) b.subject(effectiveSub);
         if (notBefore != null) b.notBeforeTime(Date.from(notBefore));
         if (!teams.isEmpty()) b.claim("teams", teams);
         if (!perms.isEmpty()) b.claim("perms", perms);

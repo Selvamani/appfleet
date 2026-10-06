@@ -1,0 +1,60 @@
+/* Dashboard: matrix cells and small text. Colours and sizes come from tokens.css only. */
+
+.appCell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+/* Version and status chip as one link: the version reads as the link text, the chip keeps its tone. */
+.cellLink {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.5rem;
+  color: var(--ink);
+  text-decoration: none;
+}
+.cellLink code {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.cellLink:hover code { color: var(--accent-ink); }
+
+.latest {
+  font-size: 0.86rem;
+  overflow-wrap: anywhere;
+}
+
+.notDeployed {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.time {
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.by {
+  font-size: 0.9rem;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+/*
+ * Holds a visually hidden (.sr-only, position: absolute) child inside a sideways-scrolling table.
+ * Without a positioned ancestor the hidden text escapes the scroller and widens the whole page.
+ */
+.anchor { position: relative; }

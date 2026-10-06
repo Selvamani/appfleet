@@ -3,7 +3,7 @@
  *
  * One lesson per use of Redis in Appfleet:
  *   rd-idempotency  idempotency keys on POST /deployments      built, S3.5
- *   rd-ratelimit    per-team token bucket                      designed, S3.6
+ *   rd-ratelimit    per-team token bucket                      built, S3.6
  *   rd-lease        node lease with fencing tokens             planned, S5
  *   rd-heartbeat    heartbeat sorted set and fleet health      planned, S5
  *   rd-cache        cache-aside, eviction, stampede            planned, S6
@@ -673,17 +673,20 @@
     order: 2,
     title: 'Rate limiting with a token bucket',
     question: 'How do you stop one team from flooding the API, across every app instance, without turning a Redis outage into an API outage?',
-    status: 'designed',
+    status: 'built',
     slice: 'S3.6',
     where: [
+      'RateLimiter, RateLimitInterceptor, RateLimitProperties, RateLimitedException (io.appfleet.control.ratelimit)',
+      'HeaderTeamResolver (temporary until S4), WebConfig (io.appfleet.control.web)',
+      'src/main/resources/ratelimit/take-token.lua',
+      'RateLimitEndpointsTest, IdempotencyRedisDownTest (case 9, fail open)',
       'docs/design/control-api/control-api-s3-6-rate-limiting.md',
-      'Planned, not in code yet: RateLimiter, RateLimitInterceptor, HeaderTeamResolver (temporary until S4), ratelimit/take-token.lua',
       'ApiExceptionHandler: the S3.5 mapping of RedisConnectionFailureException to 503 that the limiter must not reach'
     ],
     idea: [
       'A token bucket holds up to N tokens and refills at a steady rate. Each request spends one; an empty bucket means 429 with Retry-After, the time until one token is back. Capacity sets the burst, the refill sets the sustained rate. Unlike a per-minute counter, it never allows a double burst across a window boundary.',
-      'The S3.6 design, not built yet, keeps one bucket per team in Redis as a hash {tokens, ts}. One Lua script reads it, refills it using Redis TIME, takes a token, writes it back and sets PEXPIRE to the time it takes to fill up. Defaults: 60 tokens, refill 1 per second. It must be atomic: in two separate calls, concurrent requests spend the same token.',
-      'Until S4 brings JWTs, a temporary HeaderTeamResolver reads X-Team-Id; no header means the shared anonymous bucket. It runs as a HandlerInterceptor, not a filter, so the 429 gets the usual problem shape. If Redis fails, the limiter fails open, and it must catch DataAccessException to do so, or S3.5\'s 503 handler turns a Redis outage into a full API outage.'
+      'S3.6 keeps one bucket per caller in Redis as a hash {tokens, ts}. One Lua script reads it, refills it using Redis TIME, takes a token, writes it back and sets PEXPIRE to the time it takes to fill up. Defaults: 60 tokens, refill 1 per second. It must be atomic: in two separate calls, concurrent requests spend the same token.',
+      'S3.6 first keyed the bucket on a temporary X-Team-Id header, which any client could rotate to escape the limit. Since S4.2 the key is the token\'s sub (ratelimit:v1:user:<sub>), the header is ignored, and a missing principal falls back to a shared anonymous bucket. It runs as a HandlerInterceptor, not a filter, so the 429 gets the usual problem shape. If Redis fails, the limiter fails open, and it must catch DataAccessException to do so, or S3.5\'s 503 handler turns a Redis outage into a full API outage.'
     ],
     terms: [
       ['Token bucket', 'A counter that refills at a steady rate up to a cap; each request spends one token.'],
@@ -698,7 +701,7 @@
       'Turn on Redis down: requests pass with a warning. Then turn on Fail closed: every request becomes 503, a full outage.',
       'Under the simulation, in Step through the Lua script: with Stored tokens 0.25 and Last request 400 ms ago the refill reaches 0.65, so the call is refused with Retry-After 1 s. Drag Last request to 1000 ms and the same call is allowed, leaving 0.25. Turn off Key exists in Redis to see a new team start full.'
     ],
-    breakIt: 'Read the bucket and write it back in two calls, and concurrent requests all read the same token count, so a burst gets through a nearly empty bucket. Let the Redis error escape the limiter, and S3.5\'s 503 handler turns a Redis outage into an outage of the whole API.',
+    breakIt: 'Read the bucket and write it back in two calls, and concurrent requests all read the same token count, so a burst gets through a nearly empty bucket. This was run on the real code: with a Java read-modify-write in place of the script, the concurrent-burst test (capacity 3, 10 requests together) failed 6 runs out of 6, and the last report showed all 10 answers as 200. Turn the limiter on for every test, with no team header, and 39 tests failed plus 1 error, because they all share one anonymous bucket. Let the Redis error escape the limiter, and S3.5\'s 503 handler turns a Redis outage into an outage of the whole API.',
     say: 'Rate limiting is a per-team token bucket in Redis, refilled and spent by one atomic Lua script on Redis\'s own clock and answered with 429 and Retry-After, and it fails open when Redis is down because a limiter that refuses everything is a bigger outage than the one it prevents.',
     quiz: {
       q: 'Redis becomes unreachable. Why does the rate limiter fail open while idempotency keys, on the same Redis, fail closed?',
@@ -719,7 +722,7 @@
       const TEAMS = [
         { id: 'a', label: 'team A', bucket: '0190f3a2-5c1e-7d40-8b2a-6e1f9c3d7a10' },
         { id: 'b', label: 'team B', bucket: '0190f3a2-9e47-7a1b-a3c5-2d8e4b6f0c92' },
-        { id: 'anon', label: 'no X-Team-Id', bucket: 'anonymous' }
+        { id: 'anon', label: 'no principal', bucket: 'anonymous' }
       ];
       const teamById = id => TEAMS.find(tm => tm.id === id);
 
@@ -924,7 +927,7 @@
         const down = downT.get();
         TEAMS.forEach(tm => {
           const g = gauges[tm.id];
-          const key = 'ratelimit:v1:team:' + tm.bucket;
+          const key = 'ratelimit:v1:user:' + tm.bucket;
           if (down) {
             g.text.v = 'unknown';
             g.bar.set(0, null);

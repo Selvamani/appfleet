@@ -2,7 +2,7 @@
 
 **Spec:** [01-CONTROL-API.md §S3](../../specs/project/01-CONTROL-API.md) — *"Rate limiting: token bucket per team in Redis — atomic via a small Lua script or `DECR`-with-expiry pattern; 429 + `Retry-After` when empty"* · Slice **S3.6** of [control-api-s3-rest.md](control-api-s3-rest.md)
 
-Companion: [control-api-s3-5-idempotency.md](control-api-s3-5-idempotency.md) (the Redis Testcontainer, the Lua approach, the 503 mapping for Redis failures, and a design that fails the other way), [control-api-s3-4-task-history.md](control-api-s3-4-task-history.md) (why reads need limiting too: the offset endpoint's cost grows with depth), [control-api-s3-1-foundations.md](control-api-s3-1-foundations.md) (the problem shape, the temporary open security chain). **Status: code wired and the existing suite green (2026-10-02); the rate-limit tests are in progress, see section 11.**
+Companion: [control-api-s3-5-idempotency.md](control-api-s3-5-idempotency.md) (the Redis Testcontainer, the Lua approach, the 503 mapping for Redis failures, and a design that fails the other way), [control-api-s3-4-task-history.md](control-api-s3-4-task-history.md) (why reads need limiting too: the offset endpoint's cost grows with depth), [control-api-s3-1-foundations.md](control-api-s3-1-foundations.md) (the problem shape, the temporary open security chain). **Status: closed 2026-10-02. Code, tests and the manual check are done, and `mvn verify` is green (203 tests, 2 skipped). Two red runs were observed (naive limiter, limiter on for every test); the Redis-down red run was not run. See section 11.**
 
 Rate limiting reuses all of S3.5's Redis plumbing, so the code is small. The design questions are elsewhere: who is "a team" before S4 gives requests an identity, which way the limiter fails when Redis is down, and how to keep it from throttling the existing test suite.
 
@@ -80,6 +80,7 @@ return {allowed, math.floor(tokens), retry_ms}
 - **The bucket is a hash** with the fractional token count and the last refill time in milliseconds. Fractions matter: at 1 token per second, 400 ms of waiting is 0.4 of a token, and losing it would make the limiter stricter than configured.
 - **The return trap:** a Lua number returned to Redis is converted to an integer, truncating any fraction. That is why the script returns `math.floor(tokens)` and a whole number of milliseconds, never a raw fraction. Inside the hash, `tostring` keeps the fraction.
 - **Redis key:** `ratelimit:v1:team:<teamId>`, with `anonymous` in place of the id when no header is sent.
+- **Superseded in S4.2 (2026-10-05):** the key is now `ratelimit:v1:user:<sub>` (the token's `sub`). `HeaderTeamResolver`, `TeamResolver`, `InvalidHeaderException` and the `X-Team-Id` header are gone; the server ignores that header. Old `team` keys expire by themselves. Everything below describes S3.6 as built at the time. See [S4.2](control-api-s4-2-principal.md).
 
 ### 4.1 Line by line
 
@@ -367,37 +368,95 @@ With the app on profile `local`, the defaults apply (60 tokens, 1 per second). S
 
 ## 11. Results
 
-*(final results to be written when the slice closes)*
-
-**Test run, 2026-10-02** (`mvn test -Dtest=RateLimitEndpointsTest,ProblemShapeTest`):
+**Closing run, 2026-10-02** (`mvn -pl control-api -am verify -DargLine="-Duser.timezone=UTC"`, Docker Desktop up): BUILD SUCCESS, 203 tests, 0 failures, 0 errors, 2 skipped (the two known `@Disabled` tests).
 
 | Class | Result |
 |---|---|
-| `RateLimitEndpointsTest` | 9 run, 8 passed, 1 failed |
-| `ProblemShapeTest` | 29 run, 29 passed |
+| `RateLimitEndpointsTest` | 9 run, 9 passed (cases 1 to 8; case 6 counts twice) |
+| `IdempotencyRedisDownTest` | 3 run, 3 passed, including case 9 `rateLimiter_redisDown_failsOpen` |
+| `ProblemShapeTest` | 32 run, 32 passed, including the `rate-limited` row, both `Retry-After` rows and the invalid-header test |
 
-- **Cases 1 and 3 to 8 are green** (8 tests; case 6 counts twice). The concurrent case allowed exactly 3 of 10.
+A first attempt the same day, before Docker Desktop was started, gave 104 tests with 16 Testcontainers errors (`Can't get Docker image: postgres:16`). It says nothing about the code.
+
+Earlier the same day, case 9 sat in `RateLimitEndpointsTest`, where Redis is up, so no warning was logged (`expected: 1 but was: 0`). It was moved to `IdempotencyRedisDownTest` with `appfleet.rate-limit.enabled=true`. Case 2 was written as `otherTeam_hasOwnBucket`.
+
+- **Concurrent case:** exactly 3 of 10 allowed.
 - **Case 8 observed 1:** unknown routes under `/api/**` spend tokens. Decision 6's "probably" is now a fact, and the test pins it.
-- **The one failure is case 9, in the wrong class.** `rateLimiter_redisDown_failsOpen` currently sits in `RateLimitEndpointsTest`, where Redis is up, so the warning is never logged: `expected: 1 but was: 0`. It belongs in `IdempotencyRedisDownTest` (section 7.2).
 
-Open after this run:
+**Manual check against the dev stack (section 8), 2026-10-02.** App on profile `local` against the compose Postgres (port 55432) and Redis, defaults 60 burst and 1 token per second.
 
-1. Case 2 (independent buckets) is not written.
-2. Move case 9 to `IdempotencyRedisDownTest` and add `appfleet.rate-limit.enabled=true` to that class's properties.
-3. `ProblemShapeTest` has the three probes and `invalidHeader_is400_withHeaderAsField`, but the `rate-limited` row in `domainRows` and the two rows in `retryAfterRows` are not added yet, so `/probe/rate-limited` and `/probe/rate-limited-zero` are not called by any test.
-4. Manual check against the dev stack (section 8).
+- 61 sequential `curl` calls with one `X-Team-Id` all returned 200. Each call takes long enough for about 5 tokens to refill, so the bucket never ran dry inside the 61. The next immediate request returned 429. Section 8's "the 61st is 429" holds only for a truly parallel burst, not for sequential `curl`.
+- The 429 had `Retry-After: 1`, `Content-Type: application/problem+json`, and `type` `urn:appfleet:problem:rate-limited`, with `correlationId` and `instance` in the body.
+- Redis held a hash with `tokens` = 0.935 (fractional) and `ts` = epoch milliseconds. `PTTL` was 59,638 ms, which fits a 60-token bucket refilling at 1 per second.
+- After a 2 s wait, the next request returned 200.
+- `X-Team-Id: nope` returned 400.
+- The test keys were deleted afterwards.
+
+**Red run: the naive limiter overshoots (section 9 step 2), 2026-10-02.** After the Lua version was green, `RateLimiter.tryConsume` was temporarily replaced by a read-modify-write in Java, with the Lua call commented out. The same `RateLimitEndpointsTest#concurrentBurst_allowsExactlyCapacity` (case 5) was then run alone, 6 times in fresh JVMs.
+
+The naive body:
+
+```java
+String key = PREFIX + team;
+long now = System.currentTimeMillis();          // Java clock; the Lua used Redis TIME
+
+// 1. READ (round trip 1)
+List<Object> b = redis.opsForHash().multiGet(key, List.of("tokens", "ts"));
+double tokens = b.get(0) == null ? limits.capacity() : Double.parseDouble((String) b.get(0));
+long ts       = b.get(1) == null ? now               : Long.parseLong((String) b.get(1));
+
+// 2. COMPUTE (the same arithmetic as the Lua)
+tokens = Math.min(limits.capacity(), tokens + (now - ts) / 1000.0 * limits.refillPerSecond());
+boolean allowed = tokens >= 1;
+long retryMs = 0;
+if (allowed) tokens -= 1;
+else retryMs = (long) Math.ceil((1 - tokens) / limits.refillPerSecond() * 1000);
+
+// 3. WRITE (round trips 2 and 3)
+redis.opsForHash().put(key, "tokens", String.valueOf(tokens));
+redis.opsForHash().put(key, "ts", String.valueOf(now));
+redis.expire(key, Duration.ofMillis((long) Math.ceil(limits.capacity() / (double) limits.refillPerSecond() * 1000)));
+
+return new RateLimitDecision(allowed, (long) Math.floor(tokens), Duration.ofMillis(retryMs));
+```
+
+Result: **the test failed 6 times out of 6.** The surefire report of the last run shows the statuses `[200, 200, 200, 200, 200, 200, 200, 200, 200, 200]` against the expected `[200, 429]` only, with exactly 3 of 200. All 10 concurrent requests passed with a capacity of 3. The reports of the first five runs were overwritten, so their counts were not recorded.
+
+Why: every thread ran the READ step before any thread reached the WRITE step. All 10 saw a full bucket (3 tokens), decided "allowed", and wrote back 2. Three separate Redis calls are not atomic, and the gap between them is the race. The Lua script has no gap, because Redis runs a script as one step.
+
+Fix: the Lua call was restored and case 5 is green again (see the closing run above; it must be re-run after the restore).
+
+**Red run: the limiter enabled for every test (section 9 step 3), 2026-10-02.** With the Lua limiter restored, `appfleet.rate-limit.enabled` in `application-test.yml` was set to `true` (defaults apply: 60 burst, 1 token per second) and the whole `mvn verify` was run.
+
+Result: **203 run, 39 failures, 1 error, 2 skipped, BUILD FAILURE.** Three classes fail, all with `expected: 202 but was: 429` or similar:
+
+| Class | Run | Failed |
+|---|---|---|
+| `DeploymentEndpointsTest` | 24 | 24 failures |
+| `IdempotencyEndpointsTest` | 13 | 12 failures, 1 error |
+| `ApplicationPaginationTest` | 9 | 3 failures |
+
+Why: these tests send no `X-Team-Id`, so every request lands in the shared `anonymous` bucket. Once a class spends the 60 tokens, the rest get 429. Classes that stay under 60 requests, or that carry their own team ids, pass: `ApplicationEndpointsTest`, `TaskHistoryEndpointsTest`, `ProblemShapeTest`, `RateLimitEndpointsTest`, and the non-web classes. The raw count depends on order and timing, because the bucket refills at 1 per second, so the number is indicative, not exact.
+
+Fix: `appfleet.rate-limit.enabled: false` in `application-test.yml`. `RateLimitEndpointsTest` and `IdempotencyRedisDownTest` turn it back on with their own properties.
+
+**Not run (recorded as such):**
+
+- Redis down without the `catch`, to see 503 (step 6). The `catch` was in place when case 9 was first written.
+
+The lesson of that run is argued in the design, not observed.
 
 Recorded while designing: the script above was run by hand against the compose Redis 7 with capacity 3 and 1 token per second. Four calls in a row returned `allowed` 1, 1, 1, 0, the fourth with a retry of 416 ms (about 0.58 of a token had refilled during the roughly 200 ms each `docker exec` took). After 1.2 s, one more call was allowed. Ten parallel calls on a fresh key with a refill of 0.01 per second: exactly 3 allowed, 7 denied. The hash held a fractional `tokens` value (`0.584`) and the key's TTL was below 3,000 ms. The test keys were deleted afterwards.
 
 ## Definition of done
 
 - [x] `RateLimitProperties` bound and validated; defaults documented
-- [ ] Naive Java read-modify-write limiter shown overshooting in case 5, then replaced by the Lua script
-- [ ] Suite shown failing with the limiter enabled globally; `test` profile disables it
+- [x] Naive Java read-modify-write limiter shown overshooting in case 5 (failed 6 of 6, last run 10 × 200), then replaced by the Lua script (Lua written first, naive version added afterwards for the red run)
+- [x] Suite shown failing with the limiter enabled globally (39 failures, 1 error in 3 classes); `test` profile disables it
 - [x] `RateLimiter`, `RateLimitInterceptor`, `HeaderTeamResolver` (marked TEMPORARY), `WebConfig`, handlers for 429 and the invalid header
-- [ ] `RateLimitEndpointsTest` cases 1 to 8 green, including the concurrent case
-- [ ] Redis down shown as 503 without the `catch`, then fail-open (case 9) green
-- [ ] `ProblemShapeTest` rows for `rate-limited` and the invalid header
-- [ ] Manual check against the dev Redis
-- [ ] Results section written; plan doc's S3 definition-of-done item "rate limiter returns 429 with `Retry-After`" ticked
-- [ ] `mvn verify` green
+- [x] `RateLimitEndpointsTest` cases 1 to 8 green, including the concurrent case
+- [x] Redis down fail-open (case 9) green (503-without-`catch` red run not run)
+- [x] `ProblemShapeTest` rows for `rate-limited` and the invalid header
+- [x] Manual check against the dev Redis
+- [x] Results section written; plan doc's S3 definition-of-done item "rate limiter returns 429 with `Retry-After`" ticked
+- [x] `mvn verify` green (203 tests, 2 skipped)

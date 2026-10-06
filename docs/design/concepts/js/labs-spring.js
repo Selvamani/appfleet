@@ -907,7 +907,7 @@
 
   const DEPLOY_BODY = id => '{"applicationId": "' + id.app + '", "releaseId": "' + id.rel + '", "environment": "staging"}';
 
-  // Titles, details and slugs are the ones ApiExceptionHandler produces (S3.6's 429 is designed, not built).
+  // Titles, details and slugs are the ones ApiExceptionHandler produces (including S3.6's 429).
   const PROBLEMS = [
     { key: 'malformed', label: 'Malformed JSON', status: 400, slug: 'malformed-request', title: 'Bad Request', mvc: true,
       req: id => 'POST /api/v1/deployments\nContent-Type: application/json\n\n{"applicationId": "' + id.app + '", "releaseId": ',
@@ -960,10 +960,10 @@
       req: id => 'POST /api/v1/deployments\nIdempotency-Key: k-43\nContent-Type: application/json\n\n' + DEPLOY_BODY(id) + '\n\n(Redis is unreachable)',
       path: '/api/v1/deployments', detail: 'A required backing service is unavailable. Retry later.',
       why: 'The request and the state are fine; the server cannot check the key without Redis. RedisConnectionFailureException becomes 503 service-unavailable, with Retry-After: 5.' },
-    { key: 'rate', label: 'Rate limited', status: 429, slug: 'rate-limited', title: 'Too many requests', retry: '1', designed: true,
+    { key: 'rate', label: 'Rate limited', status: 429, slug: 'rate-limited', title: 'Too many requests', retry: '1',
       req: id => 'POST /api/v1/deployments\nContent-Type: application/json\n\n' + DEPLOY_BODY(id) + '\n\n(the team\'s token bucket is empty)',
       path: '/api/v1/deployments', detail: 'The rate limit for this team is exhausted. Retry after the time given in Retry-After.',
-      why: 'Designed in S3.6, not built yet: an empty token bucket answers 429 rate-limited, with Retry-After in whole seconds, rounded up, at least 1.' },
+      why: 'Built in S3.6: an empty token bucket answers 429 rate-limited, with Retry-After in whole seconds, rounded up, at least 1.' },
     { key: 'bug', label: 'Unknown constraint', status: 500, slug: 'internal-error', title: 'Internal server error',
       req: id => 'POST /api/v1/deployments\nContent-Type: application/json\n\n' + DEPLOY_BODY(id) + '\n\n(a NOT NULL constraint fails: a bug, not a conflict)',
       path: '/api/v1/deployments', detail: 'An unexpected error occurred.',
@@ -980,9 +980,11 @@
     slice: 'S3.1',
     where: [
       'ApiExceptionHandler extends ResponseEntityExceptionHandler',
-      'ProblemShapeTest (28 tests)',
+      'ProblemShapeTest (32 tests)',
       'control-api-s3-rest.md §3.2 status matrix',
-      'control-api-s3-6-rate-limiting.md (429, designed)'
+      'control-api-s3-6-rate-limiting.md (the 429 and its Retry-After)',
+      'ProblemKind (io.appfleet.control.web.openapi): the one list of slugs, status and titles that the handler and the OpenAPI document both use',
+      'OpenApiContractTest, control-api-s3-7-openapi.md'
     ],
     idea: [
       'RFC 7807 defines one JSON body for errors: type, title, status, detail and instance. Appfleet adds correlationId, and an errors list of field and message only on validation failures. The type, urn:appfleet:problem:<slug>, is the stable contract clients switch on; detail is free text and may change.',

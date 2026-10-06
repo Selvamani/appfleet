@@ -92,8 +92,8 @@ class IdempotencyRedisDownTest {
     @Test
     @ExtendWith(OutputCaptureExtension.class)
     void rateLimiter_redisDown_failsOpen(CapturedOutput output) throws Exception {
-        MockHttpServletResponse r = mockMvc.perform(get("/api/v1/applications").param("limit", "1")
-                .header("X-Team-Id", UUID.randomUUID().toString())).andReturn().getResponse();
+        MockHttpServletResponse r = mockMvc.perform(get("/api/v1/applications").param("limit", "1"))
+                .andReturn().getResponse();
 
         assertThat(r.getStatus()).isEqualTo(200);
         assertThat(StringUtils.countOccurrencesOf(output.getOut(), "Rate limiter unavailable")).isEqualTo(1);

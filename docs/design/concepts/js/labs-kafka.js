@@ -564,18 +564,22 @@
     order: 2,
     title: 'Transactional outbox',
     question: 'How do you save a change and announce it on Kafka without ever doing only one of the two?',
-    status: 'planned',
-    slice: 'S4',
+    status: 'built',
+    slice: 'S4.5',
     where: [
-      'control-api/src/main/java/io/appfleet/control/outbox/OutboxMessage.java (entity exists, poller planned)',
+      'docs/design/control-api/control-api-s4-plan.md, S4.5 (same-transaction write, a poller, the kill-test)',
+      'docs/design/control-api/control-api-s4-5-outbox.md (the design and Results 9.1 to 9.9: the jsonb red run, the REQUIRES_NEW mutation, the dual write and publish-after-commit shown failing, the kill-test on the real stack)',
+      'docs/design/control-api/control-api-s4-5-outbox-code.md (every outbox file explained, with the verified reference code)',
+      'control-api/src/main/java/io/appfleet/control/outbox/OutboxWriter.java (MANDATORY), OutboxMessage.java, OutboxPoller.java',
+      'control-api/src/test/java/io/appfleet/control/outbox/OutboxWriteTest.java (racingRollbacks_leaveExactlyOneMessage), OutboxPollerTest.java, OutboxDeliveryTest.java',
       'control-api/src/main/resources/db/migration/V1__init.sql, outbox_message',
       'docs/specs/project/01-CONTROL-API.md, S4 (the outbox and its kill test)',
       'docs/design/control-api/control-api-spring-flow.md, Outbox flow'
     ],
     idea: [
       'A database commit and a Kafka publish happen in two separate systems, and no transaction spans both. Write to one, then the other, and a crash in between leaves them disagreeing: a saved change nobody hears about, or an announcement of a change that rolled back.',
-      'The outbox moves the message into the database. The transaction that inserts the deployment also inserts an outbox_message row, so both commit or neither does. A scheduled poller reads unsent rows with findBySentAtIsNull, publishes each one, marks it sent with markSent, and deletes it later.',
-      'If the app dies after a publish but before markSent, the poller publishes that row again on restart. So the outbox gives at-least-once publishing, and consumers must be idempotent (next lesson). control-api will publish deployment.commands this way in S4; the outbox_message table and entity already exist.'
+      'The outbox moves the message into the database. The transaction that inserts the deployment also inserts an outbox_message row, so both commit or neither does. A scheduled poller reads the oldest unsent rows, publishes each one and waits for the broker’s acknowledgement, marks it sent with markSent, and a purge deletes sent rows a day later. In Appfleet the writer is a class whose only method is annotated Propagation.MANDATORY, so it throws if nobody opened a transaction.',
+      'If the app dies after a publish but before markSent, the poller publishes that row again on restart. So the outbox gives at-least-once publishing, and consumers must be idempotent (next lesson). control-api publishes the DEPLOY and ROLLBACK commands to task.work this way, keyed by deployment id. The proof was run, not argued: two racing rollbacks leave exactly one outbox row, but with the writer on REQUIRES_NEW (the way the audit recorder is written) they left two in 3 of 3 runs, the second for a task that had rolled back. A dual write sent two commands for that one change, and publish-after-commit left a committed change with no command at all. And a real kill -9 between the commit and the publish lost nothing: the row was still pending after the restart and went out with its message-id header (S4.5 Results 9.4, 9.8, 9.9).'
     ],
     terms: [
       ['Dual write', 'Writing to two systems one after the other, with nothing tying the two writes together.'],
@@ -585,7 +589,8 @@
     tryIt: [
       'Choose Write path dual write: commit then publish and Crash point after commit, then press Create a deployment: the row exists, the message never leaves.',
       'Choose dual write: publish then commit with Crash point after publish: Kafka carries a deployment that Postgres rolled back.',
-      'Choose outbox and try both crash points: after commit it still delivers once after the restart; after publish it delivers twice.'
+      'Choose outbox and try both crash points: after commit it still delivers once after the restart; after publish it delivers twice.',
+      'Then read the lab against the measured results in the where list: the same three designs were run against two racing rollbacks (outbox one command, dual write two, publish-after-commit zero) and the outbox survived a real kill -9.'
     ],
     breakIt: 'Use a dual write and kill the process between the two writes: commit then publish loses the message, publish then commit announces a phantom deployment.',
     say: 'I never dual-write: the event goes into an outbox table in the same transaction as the state change and a poller publishes it, which gives at-least-once delivery that idempotent consumers absorb.',
@@ -649,7 +654,7 @@
       el.appendChild(h('div', { class: 'readouts' }, rowsR.el, unsentR.el, msgsR.el, outcomeR.el));
       el.appendChild(verdict.el);
       el.appendChild(log.el);
-      el.appendChild(note('Illustrative: each step is slowed to under a second so you can watch it. The crash is a kill of the control-api process at the chosen point.'));
+      el.appendChild(note('Illustrative: each step is slowed to under a second so you can watch it. The crash is a kill of the control-api process at the chosen point. Measured in Appfleet (S4.5 Results): outbox 1 command and dual write 2 commands for two racing rollbacks, publish-after-commit 0 commands for a committed change, and a kill -9 between commit and publish that lost nothing.'));
 
       function renderCode() {
         const crash = crashChoice.get();

@@ -1,0 +1,34 @@
+/* position: relative keeps visually hidden text inside the scroller, so it cannot widen the page. */
+.scroll { overflow-x: auto; position: relative; }
+.table { min-width: var(--minw, 640px); }
+.row {
+  display: grid;
+  grid-template-columns: var(--cols);
+  gap: 0.85rem;
+  align-items: center;
+  padding: 0.7rem 0.4rem;
+  border-bottom: 1px solid var(--line-2);
+}
+.head {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--muted);
+  padding-top: 0.15rem;
+  padding-bottom: 0.55rem;
+  border-bottom-color: var(--line);
+}
+.cell { min-width: 0; overflow-wrap: anywhere; }
+.end { text-align: right; justify-self: end; }
+.empty { padding: 1rem 0.4rem; color: var(--muted); }
+.list { list-style: none; margin: 0; padding: 0; }
+.rowButton {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--line-2);
+  cursor: pointer;
+  border-radius: 0;
+}
+.rowButton:hover { background: var(--row-hover); }
+.selected, .selected:hover { background: var(--selected); }

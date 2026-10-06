@@ -17,6 +17,13 @@ spring:
     default-schema: control
   kafka:
     bootstrap-servers: ${KAFKA_HOST:localhost}:${KAFKA_PORT:9092}
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+        delivery.timeout.ms: 6000
+        request.timeout.ms: 3000
+        max.block.ms: 3000
   data:
     redis:
       repositories:
@@ -32,6 +39,8 @@ appfleet:
       public-key-location: ${JWT_PUBLIC_KEY_LOCATION:classpath:keys/dev-public.pem}
       issuer: appfleet-identity
       audience: appfleet
+  docs:
+    public: true
 
 logging:
   pattern:
@@ -51,4 +60,4 @@ springdoc:
     path: /v3/api-docs
   swagger-ui:
     enabled: true
-
+    persist-authorization: true

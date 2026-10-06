@@ -37,7 +37,7 @@ public class ApplicationEndpointsTest extends WebIntegrationTest {
 
     private String createApp() throws Exception {   // returns app id
         MvcResult r = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
-                        .content(appJson(uniqueName(), UUID.randomUUID())))
+                        .content(appJson(uniqueName(), TestAuth.TEAM)))
                 .andExpect(status().isCreated()).andReturn();
         return com.jayway.jsonpath.JsonPath.read(r.getResponse().getContentAsString(), "$.id");
     }
@@ -52,7 +52,7 @@ public class ApplicationEndpointsTest extends WebIntegrationTest {
     void createApplication_returns201_andLocationResolves() throws Exception {
         String body = """
                 {"name":"orders","description":"x","ownerTeamId":"%s"}
-                """.formatted(UUID.randomUUID());
+                """.formatted(TestAuth.TEAM);
 
         MvcResult created = mockMvc.perform(post("/api/v1/applications")
                         .contentType(MediaType.APPLICATION_JSON).content(body))
@@ -71,8 +71,8 @@ public class ApplicationEndpointsTest extends WebIntegrationTest {
     @Test
     void createApplication_returns409_andConflictOccurs() throws Exception {
         String name = uniqueName();
-        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(appJson(name, UUID.randomUUID()))).andExpect(status().isCreated());
-        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(appJson(name, UUID.randomUUID())))
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(appJson(name, TestAuth.TEAM))).andExpect(status().isCreated());
+        mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(appJson(name, TestAuth.TEAM)))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.type").value("urn:appfleet:problem:conflict"))
                 .andExpect(jsonPath("$.detail").value("An application with this name already exists."));
@@ -176,7 +176,7 @@ public class ApplicationEndpointsTest extends WebIntegrationTest {
         Callable<Integer> call = () -> {
             barrier.await(5, TimeUnit.SECONDS);
             return mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
-                            .content(appJson(name, UUID.randomUUID())))
+                            .content(appJson(name, TestAuth.TEAM)))
                     .andReturn().getResponse().getStatus();
         };
         ExecutorService pool = Executors.newFixedThreadPool(2);

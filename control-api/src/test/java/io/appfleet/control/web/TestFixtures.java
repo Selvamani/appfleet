@@ -40,14 +40,33 @@ public class TestFixtures {
         this.tasks = tasks;
     }
 
-    /** A new application, release and environment: a valid target for POST /deployments. */
+    /** A new application, release and environment: a valid target for POST /deployments. Random owner team. */
     public Fixture fixture() {
+        return fixtureFor(TestAuth.TEAM);
+    }
+
+    /** Same, with the application owned by the given team. */
+    public Fixture fixtureFor(UUID ownerTeamId) {
         String suffix = UUID.randomUUID().toString().substring(0, 8);
-        Application app = applications.save(new Application("app-" + suffix, "x", UUID.randomUUID()));
+        Application app = applications.save(new Application("app-" + suffix, "x", ownerTeamId));
         Release release = releases.save(new Release(app, "v1.0.0", "registry/app:v1.0.0", "sha256:" + "a".repeat(64)));
         Environment env = environments.save(new Environment("env-" + suffix));
         return new Fixture(app, release, env);
     }
+
+    /** A PENDING deployment of an application owned by the given team. */
+    public Deployment deploymentFor(UUID ownerTeamId) {
+        Fixture f = fixtureFor(ownerTeamId);
+        return deployments.save(new Deployment(f.app(), f.release(), f.env()));
+    }
+
+    /** A deployment of the given team's application, moved to the target state through legal transitions. */
+    public Deployment deploymentFor(UUID ownerTeamId, DeploymentState target) {
+        Deployment d = deploymentFor(ownerTeamId);
+        driveTo(d.getId(), target);
+        return d;
+    }
+
 
     /** A PENDING deployment saved directly, without the API (no task, no audit row). */
     public Deployment deployment() {

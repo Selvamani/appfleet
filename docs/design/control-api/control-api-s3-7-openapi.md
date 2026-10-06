@@ -525,7 +525,7 @@ Not exercised against the running app: the 409 `illegal-transition`, `concurrent
 - **Tests added:** `OpenApiContractTest` (10), `SwaggerUiProfileTest` (3), `SwaggerUiDisabledTest` (3), 3 in `TemporaryOpenChainTest`. `mvn verify`: **222 tests, 0 failures, 2 skipped, BUILD SUCCESS**.
 - **Red runs seen:** the contract test with no annotations (5 of 8 red), tests 3 and 9 red until the annotations existed, and the 409 and 422 loss found by reading the spec after step 4. **Not seen red:** tests 5 and 10 (written after the behaviour), the UI tests, and the drift drill (the handler refactor made the drill impossible without a literal).
 - **Findings that changed the design:** springdoc documents `200` for any `ResponseEntity` and `*/*` as the content type (fixed with explicit `@ApiResponse` and a customizer); two slugs on one status overwrite each other (responses keyed by status); nothing linked the handler's slugs to the documented ones (the handler uses `ProblemKind`).
-- **Left as they are:** `method-not-allowed`, `unsupported-media-type` and `error-<status>` are not documented; Swagger UI in a browser not verified; the `prod` profile file itself is not tested, only the property; the JSON stays on in `prod` (decision 6) until S4 decides.
+- **Left as they are:** `method-not-allowed`, `unsupported-media-type` and `error-<status>` are not documented; Swagger UI in a browser not verified; the `prod` profile file itself is not tested, only the property; the JSON stays on in `prod` (decision 6) until S4 decides. **Closed in S4.6 (2026-10-06):** in `prod` the JSON needs any valid token (`appfleet.docs.public=false`) and the UI stays off.
 
 ## Definition of done
 

@@ -5,6 +5,7 @@ import io.appfleet.control.web.openapi.ProblemKind;
 import io.appfleet.control.web.openapi.ProblemResponses;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -26,6 +27,7 @@ public class TaskController {
     @Operation(summary = "Get a task",
             description = "The target of the Location header of POST /deployments and POST /deployments/{id}/rollback.")
     @ProblemResponses({ProblemKind.NOT_FOUND})
+    @PreAuthorize("hasAuthority('deployment:read')")
     @GetMapping("/{id}")
     public TaskResponse get(@PathVariable UUID id) {
         return service.get(id);

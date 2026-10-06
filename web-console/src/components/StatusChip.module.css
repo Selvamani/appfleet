@@ -1,0 +1,26 @@
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 1.72rem;
+  padding: 0 0.65rem;
+  border-radius: 0.86rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  border: 1px solid var(--control-border);
+  color: var(--ink-2);
+  background: var(--surface);
+  white-space: nowrap;
+}
+.chip::before {
+  content: '';
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+.progress { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+.settled { border-color: var(--ok-solid); background: var(--ok-solid); color: var(--ok-solid-ink); }
+.attention { border-color: var(--bad); color: var(--bad-ink); background: var(--bad-bg); }
+.ended { border-style: dashed; color: var(--ink-2); background: var(--surface); }

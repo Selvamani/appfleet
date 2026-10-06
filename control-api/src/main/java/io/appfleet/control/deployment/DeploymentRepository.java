@@ -8,13 +8,14 @@ import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 public interface DeploymentRepository extends JpaRepository<Deployment, UUID> {
-    @EntityGraph(attributePaths = "environment")
+    @EntityGraph(attributePaths = {"environment", "application"})
     Optional<Deployment> findDetailById(UUID id);
 
     @Lock(LockModeType.OPTIMISTIC_FORCE_INCREMENT)
@@ -32,5 +33,6 @@ public interface DeploymentRepository extends JpaRepository<Deployment, UUID> {
 
     List<DeploymentListView> findByApplication_Id(UUID applicationId);
 
-
+    @Query("select d.application.ownerTeamId from Deployment d where d.id = :id")
+    Optional<UUID> findOwnerTeamById(@Param("id") UUID id);
 }

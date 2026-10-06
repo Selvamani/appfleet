@@ -1,7 +1,7 @@
 /*
  * labs-security-architecture.js: the Security and Architecture lessons of "How Appfleet works".
  *
- *   Security:      sec-rbac, sec-idor, sec-jwt                 (all planned for S4)
+ *   Security:      sec-rbac, sec-idor, sec-jwt-anatomy (built, S4.1), sec-jwt   (S4)
  *   Architecture:  ar-split, ar-async, ar-resilience, ar-saga
  *
  * Facts come from docs/specs (SPRING-PROJECT.md, project/01, 02, 03, 06) and
@@ -126,7 +126,8 @@
     where: [
       'docs/specs/project/02-IDENTITY-SERVICE.md, Domain model',
       'docs/specs/SPRING-PROJECT.md, User management and RBAC',
-      'docs/specs/project/06-BUSINESS-REQUIREMENTS.md, §2 Who uses it'
+      'docs/specs/project/06-BUSINESS-REQUIREMENTS.md, §2 Who uses it',
+      'docs/design/control-api/control-api-s4-3-method-security.md (the control-api side: one permission per endpoint with @PreAuthorize hasAuthority, never a role name; built and closed 2026-10-05; the owner-team check (S4.4), identity-service and role bundles are still planned)'
     ],
     idea: [
       'A permission is one verb on one kind of thing, such as deployment:create or node:drain. A role is a named bundle of permissions, and users hold roles. Code only ever asks whether the caller has permission X, never which role they hold. So an admin can define a new role tomorrow by bundling existing permissions, and nothing is redeployed.',
@@ -375,9 +376,11 @@
     order: 2,
     title: 'Object-level checks and the IDOR',
     question: 'How do you stop someone who may deploy their own team\'s applications from deploying another team\'s application just by changing an id in the request?',
-    status: 'planned',
+    status: 'built',
     slice: 'S4',
     where: [
+      'docs/design/control-api/control-api-s4-plan.md, S4.4 (the exploit test first, then the object-level check; built and closed 2026-10-05)',
+      'docs/design/control-api/control-api-s4-4-idor.md (built and closed 2026-10-05: the permission must be held for the object\'s own team, a foreign object answers like a missing one, a TeamAccess rule in the services; the exploit was seen red first, then 14 tests, a cross-team matrix and eight mutation checks)',
       'docs/specs/project/01-CONTROL-API.md, S4 (build the IDOR first)',
       'docs/specs/SPRING-PROJECT.md, Enforcement, at three layers',
       'docs/design/control-api/control-api-s3-rest.md §3.2 (404, not 403)',
@@ -385,7 +388,7 @@
     ],
     idea: [
       'IDOR, an insecure direct object reference, is the bug where the server checks what kind of user you are but not which object you are touching. hasRole(\'DEPLOYER\') answers "may this person deploy at all?". It never asks "may this person deploy this application?", so a deployer who puts another team\'s applicationId in the body gets through.',
-      'The fix is an object-level check. In S4 control-api gets a custom PermissionEvaluator behind @PreAuthorize("hasPermission(#appId, \'Application\', \'deploy\')"). It reads Application.ownerTeamId and compares it with the team-scoped permissions in the caller\'s token. Authentication is centralised in identity-service; this decision stays in control-api, because only the service that owns the data knows who owns the object.',
+      'The fix is an object-level check. In Appfleet (S4.4) a small TeamAccess rule in the services reads Application.ownerTeamId and compares it with the team-scoped permissions in the caller\'s token; Spring\'s standard hook for the same decision is a custom PermissionEvaluator behind @PreAuthorize("hasPermission(#appId, \'Application\', \'deploy\')"). A foreign object answers like a missing one (404). Authentication is centralised in identity-service; this decision stays in control-api, because only the service that owns the data knows who owns the object.',
       'Appfleet stacks three layers: URL rules in the SecurityFilterChain (coarse), method security with @PreAuthorize, and data-level filtering, where list queries are team-scoped so other teams\' rows are never selected. Each catches something the others miss. A caller without permission on an object gets 404, not 403, so the API never confirms the object exists.'
     ],
     terms: [
@@ -594,15 +597,253 @@
     return Math.ceil(R / 5) * 5;
   }
 
+  // ---------------------------------------------------------------------
+  // sec-jwt-anatomy: what is inside a JWT and what a service checks before it trusts one (S4.1)
+  // ---------------------------------------------------------------------
+
+  /** One row per request shape. Offsets are seconds from now. sig: ok | wrong-key | tampered | hmac-public | none. */
+  const ANATOMY_SCENARIOS = [
+    { id: 'ok', label: 'A valid token', scheme: 'bearer', parses: true, alg: 'RS256', sig: 'ok', exp: 840, nbf: 0, iss: 'appfleet-identity', aud: ['appfleet'],
+      note: 'Signed by identity-service, 14 minutes left, right issuer and audience.' },
+    { id: 'skew30', label: 'Expired 30 seconds ago', scheme: 'bearer', parses: true, alg: 'RS256', sig: 'ok', exp: -30, nbf: 0, iss: 'appfleet-identity', aud: ['appfleet'],
+      note: 'Inside the 60 second clock-skew allowance, so it still passes.' },
+    { id: 'skew90', label: 'Expired 90 seconds ago', scheme: 'bearer', parses: true, alg: 'RS256', sig: 'ok', exp: -90, nbf: 0, iss: 'appfleet-identity', aud: ['appfleet'],
+      note: 'Beyond the allowance.' },
+    { id: 'expired', label: 'Expired an hour ago', scheme: 'bearer', parses: true, alg: 'RS256', sig: 'ok', exp: -3600, nbf: 0, iss: 'appfleet-identity', aud: ['appfleet'],
+      note: 'A leaked old token.' },
+    { id: 'notyet', label: 'Not valid yet (nbf in an hour)', scheme: 'bearer', parses: true, alg: 'RS256', sig: 'ok', exp: 4500, nbf: 3600, iss: 'appfleet-identity', aud: ['appfleet'],
+      note: 'Issued for later.' },
+    { id: 'iss', label: 'Wrong issuer', scheme: 'bearer', parses: true, alg: 'RS256', sig: 'ok', exp: 840, nbf: 0, iss: 'evil-idp', aud: ['appfleet'],
+      note: 'Signed with the right key but claims another issuer.' },
+    { id: 'aud', label: 'Wrong audience', scheme: 'bearer', parses: true, alg: 'RS256', sig: 'ok', exp: 840, nbf: 0, iss: 'appfleet-identity', aud: ['other-service'],
+      note: 'A token meant for another service.' },
+    { id: 'wrongkey', label: 'Signed with another key', scheme: 'bearer', parses: true, alg: 'RS256', sig: 'wrong-key', exp: 840, nbf: 0, iss: 'appfleet-identity', aud: ['appfleet'],
+      note: 'Everything looks right except who signed it.' },
+    { id: 'tamper', label: 'Payload changed after signing', scheme: 'bearer', parses: true, alg: 'RS256', sig: 'tampered', exp: 840, nbf: 0, iss: 'appfleet-identity', aud: ['appfleet'],
+      note: 'One character of the payload edited, for example a second team added.' },
+    { id: 'hs256', label: 'HS256, signed with the public key as the secret', scheme: 'bearer', parses: true, alg: 'HS256', sig: 'hmac-public', exp: 840, nbf: 0, iss: 'appfleet-identity', aud: ['appfleet'],
+      note: 'The algorithm-confusion attack: the public key is public, so anyone can use it as an HMAC secret.' },
+    { id: 'none', label: 'alg none, no signature', scheme: 'bearer', parses: true, alg: 'none', sig: 'none', exp: 840, nbf: 0, iss: 'appfleet-identity', aud: ['appfleet'],
+      note: 'An unsigned token with a valid-looking payload.' },
+    { id: 'malformed', label: 'Bearer not-a-jwt', scheme: 'bearer', parses: false, alg: null, sig: 'none', exp: 0, nbf: 0, iss: null, aud: [],
+      note: 'Not three base64url parts.' },
+    { id: 'basic', label: 'Authorization: Basic ...', scheme: 'basic', parses: false, alg: null, sig: 'none', exp: 0, nbf: 0, iss: null, aud: [],
+      note: 'A different scheme.' },
+    { id: 'missing', label: 'No Authorization header', scheme: 'none', parses: false, alg: null, sig: 'none', exp: 0, nbf: 0, iss: null, aud: [],
+      note: 'Nothing sent.' }
+  ];
+
+  const ANATOMY_SKEW = 60;
+
+  /** The seven checks, in order. pass(s, trustAlg) says whether the request gets through that check. */
+  const ANATOMY_STEPS = [
+    { label: '1. A Bearer token is present', logged: 'no Bearer token in the Authorization header',
+      pass: s => s.scheme === 'bearer' },
+    { label: '2. It parses as three base64url parts', logged: 'the token is not a JWT',
+      pass: s => s.parses },
+    { label: '3. The algorithm is RS256 (pinned)', logged: 'unsupported algorithm',
+      pass: (s, trust) => trust || s.alg === 'RS256' },
+    { label: '4. The signature verifies with the public key', logged: 'Signed JWT rejected: invalid signature',
+      pass: (s, trust) => {
+        if (s.alg === 'RS256') return s.sig === 'ok';
+        if (!trust) return false;                       // never reached: step 3 stopped it
+        return s.alg === 'HS256' ? s.sig === 'hmac-public' : s.alg === 'none';   // trusting the header: the attacker picks the check
+      } },
+    { label: '5. exp and nbf allow it (60 s skew)', logged: 'Jwt expired / used before its nbf',
+      pass: s => s.exp > -ANATOMY_SKEW && s.nbf <= ANATOMY_SKEW },
+    { label: '6. iss is appfleet-identity', logged: 'The iss claim is not valid',
+      pass: s => s.iss === 'appfleet-identity' },
+    { label: '7. aud contains appfleet', logged: 'The aud claim is not valid',
+      pass: s => s.aud.indexOf('appfleet') >= 0 }
+  ];
+
+  function anatomyRun(s, trustAlg) {
+    const passed = [];
+    for (let i = 0; i < ANATOMY_STEPS.length; i++) {
+      if (!ANATOMY_STEPS[i].pass(s, trustAlg)) return { passed, stoppedAt: i };
+      passed.push(i);
+    }
+    return { passed, stoppedAt: -1 };
+  }
+
+  AF.register({
+    id: 'sec-jwt-anatomy',
+    group: 'security',
+    order: 3,
+    title: 'Inside a JWT: what a service checks before it trusts one',
+    question: 'What is in a JWT, and which checks must a service run, in which order, before it believes who the caller is?',
+    status: 'built',
+    slice: 'S4.1',
+    where: [
+      'common-security/src/main/java/io/appfleet/security/JwtSecurityAutoConfiguration.java (the decoder: RS256 pinned, timestamp, issuer and audience validators)',
+      'common-security/src/main/java/io/appfleet/security/AppfleetJwtAuthenticationConverter.java (claims to authorities, sub as the name)',
+      'common-security/src/main/java/io/appfleet/security/ProblemAuthenticationEntryPoint.java and ProblemAccessDeniedHandler.java (401 and 403 as problems)',
+      'control-api/src/test/java/io/appfleet/control/web/JwtAuthenticationTest.java (one test per row of the lab) and common-security/src/test/java/io/appfleet/security/testing/TestJwt.java',
+      'docs/design/control-api/control-api-s4-1-jwt-validation.md'
+    ],
+    idea: [
+      'A JWT is three base64url parts joined by dots: a header (the algorithm), a payload of claims, and a signature over the first two. The payload is only encoded, not encrypted, so anyone holding the token can read it. The signature is what makes it trustworthy: it proves identity-service wrote exactly these claims.',
+      'The registered claims do the checking. iss says who issued it, sub whom it is about (the user id), aud which service it is for, exp and nbf when it is valid, jti its unique id. Appfleet adds teams, a map of team id to permissions. Authentication only establishes who the caller is; what they may do is decided later, from teams, per endpoint and per object.',
+      'A service must run the checks in a fixed order and stop at the first failure: a Bearer token is present, it parses, the algorithm is the one expected, the signature verifies with the public key, the time window holds, the issuer is right, the audience is right. Pinning the algorithm matters most. If the service believes the token\'s own alg header, an attacker sets HS256 and signs with the public key, which everyone has, or sets none and sends no signature.',
+      'Every failure answers 401 with the same body. The reason is logged on the server and never returned, because a caller who learns which check failed learns what to fix. The one allowed signal is the WWW-Authenticate header: a missing token gets a bare Bearer, a rejected one adds error="invalid_token" (RFC 6750). Spring\'s own entry point also adds error_description, which names the failure, so Appfleet writes the header itself.'
+    ],
+    terms: [
+      ['Claim', 'One field of the payload, such as sub or exp.'],
+      ['sub', 'Subject: the user the token is about. In Appfleet a user id UUID, and the name of the authenticated principal.'],
+      ['Algorithm confusion', 'Tricking a verifier into using a different algorithm than intended, such as HS256 with the public key as the HMAC secret.'],
+      ['Clock skew', 'An allowance (60 seconds here) for two machines disagreeing about the time.'],
+      ['401 and 403', '401: we do not know who you are. 403: we know, and you may not do this.']
+    ],
+    tryIt: [
+      'Pick each token in turn and press Check. Watch which of the seven checks stops it and note that the response body never changes.',
+      'Compare Expired 30 seconds ago (passes) with Expired 90 seconds ago (stops at check 5): that is the 60 second skew.',
+      'Turn on Trust the token\'s alg header, then check the HS256 and alg none tokens: they now get in as a forged caller.',
+      'Turn on Return the reason to the client and check a bad token: the response now tells an attacker which check to get past next.'
+    ],
+    breakIt: 'Build the decoder from whatever the token\'s alg header says, and an attacker needs no key at all: HS256 signed with the public key, or alg none, both authenticate. Return the failure reason and every 401 becomes a hint.',
+    say: 'A JWT is a signed set of claims. The service verifies it locally with the issuer\'s public key, checks in order that the scheme, structure, pinned algorithm, signature, time window, issuer and audience are all right, and answers every failure with the same 401 while logging the reason privately. Authentication says who; authorization is a separate decision.',
+    quiz: {
+      q: 'A service builds its decoder from the RSA public key and pins RS256. An attacker sends a token whose header says HS256, signed with HMAC using the public key bytes as the secret. What happens?',
+      options: [
+        'It is accepted, because the HMAC verifies against the key the service holds',
+        'It is rejected at the algorithm check: the service only accepts RS256, whatever the header claims',
+        'It is accepted only if the exp claim is in the future',
+        'It is rejected because HMAC keys must be 512 bits'
+      ],
+      answer: 1,
+      why: 'The service decides the algorithm, not the token. HS256 never reaches signature verification, so the attack fails. The public key is public: with a verifier that trusts the header, it is also a valid HMAC secret, which is why the pin matters. It is also why RSA, not a shared HMAC secret, suits several services: with HMAC every verifier could mint tokens too.'
+    },
+    mount(el, ctx) {
+      let leak = false;
+      let trust = false;
+
+      const picker = h('select', { class: 'select', 'aria-label': 'Token to send' },
+        ANATOMY_SCENARIOS.map(s => h('option', { value: s.id }, s.label)));
+      const pickerLabel = h('label', { class: 'muted' }, 'Token ', picker);
+      const trustTg = ui.toggle('Trust the token\'s alg header', false, v => { trust = v; clearResult(); }, { tone: 'danger' });
+      const leakTg = ui.toggle('Return the reason to the client', false, v => { leak = v; clearResult(); }, { tone: 'danger' });
+      const checkBtn = ui.button('Check', () => check(), { variant: 'primary' });
+
+      const noteEl = h('p', { class: 'muted' }, '');
+      const decoded = h('div', { class: 'stack' });
+      const stepNodes = ANATOMY_STEPS.map(st => ui.node(st.label));
+      const stepsEl = h('div', { class: 'stack' }, stepNodes);
+
+      const statusRo = ui.readout('Response', '—');
+      const stoppedRo = ui.readout('Stopped at', '—');
+      const headerRo = ui.readout('WWW-Authenticate', '—');
+      const callerRo = ui.readout('Caller', '—');
+      const verdict = ui.verdict();
+      const bodyEl = h('div', { class: 'stack' });
+      const log = ui.log({ label: 'What the service logs (server side only)' });
+
+      function scenario() { return ANATOMY_SCENARIOS.find(s => s.id === picker.value); }
+
+      function payloadText(s) {
+        if (s.scheme !== 'bearer' || !s.parses) return '(nothing to decode)';
+        const rel = n => (n >= 0 ? 'in ' + n + ' s' : -n + ' s ago');
+        const teams = s.sig === 'tampered' ? '{ team-A: [deployment:create], team-B: [deployment:create] }  <- edited' : '{ team-A: [deployment:create] }';
+        return [
+          '{ "iss": "' + s.iss + '",',
+          '  "sub": "6dbd964a-2f76-4e85-8feb-580441de88f4",',
+          '  "aud": ' + JSON.stringify(s.aud) + ',',
+          '  "exp": ' + rel(s.exp) + (s.nbf > 0 ? ',  "nbf": ' + rel(s.nbf) : '') + ',',
+          '  "teams": ' + teams + ' }'
+        ].join('\n');
+      }
+
+      function headerText(s) {
+        if (s.scheme === 'none') return 'Authorization: (absent)';
+        if (s.scheme === 'basic') return 'Authorization: Basic dXNlcjpwYXNz';
+        if (!s.parses) return 'Authorization: Bearer not-a-jwt';
+        return '{ "alg": "' + s.alg + '", "typ": "JWT" }  .  payload  .  ' +
+          (s.sig === 'none' ? '(no signature)' : s.sig === 'ok' ? 'signature by identity-service' : s.sig === 'wrong-key' ? 'signature by another RSA key' : s.sig === 'hmac-public' ? 'HMAC, secret = the public key' : 'signature of the original payload');
+      }
+
+      function paintToken() {
+        const s = scenario();
+        noteEl.textContent = s.note;
+        AF.clear(decoded);
+        decoded.append(ui.panel('Header and signature', ui.code(headerText(s), 'Token header')), ui.panel('Payload (readable by anyone)', ui.code(payloadText(s), 'Token payload')));
+      }
+
+      function clearResult() {
+        stepNodes.forEach(n => AF.tone(n, 'idle'));
+        statusRo.set('—');
+        stoppedRo.set('—');
+        headerRo.set('—');
+        callerRo.set('—');
+        verdict.clear();
+        AF.clear(bodyEl);
+      }
+
+      function problemBody(reason) {
+        const detail = leak ? reason : 'Authentication required';
+        return ui.code('HTTP 401  application/problem+json\n{ "type": "urn:appfleet:problem:unauthorized",\n  "title": "Unauthorized", "status": 401,\n  "detail": "' + detail + '",\n  "correlationId": "..." }', 'Response body');
+      }
+
+      function check() {
+        const s = scenario();
+        const r = anatomyRun(s, trust);
+        AF.clear(bodyEl);
+        stepNodes.forEach((n, i) => {
+          if (r.stoppedAt === -1 || i < r.stoppedAt) AF.tone(n, 'ok');
+          else if (i === r.stoppedAt) AF.tone(n, 'bad');
+          else AF.tone(n, 'idle');
+        });
+        if (r.stoppedAt === -1) {
+          const forged = s.sig === 'hmac-public' || s.sig === 'none';
+          statusRo.set('200', forged ? 'bad' : 'ok');
+          stoppedRo.set('nothing', forged ? 'bad' : 'ok');
+          headerRo.set('none');
+          callerRo.set(forged ? 'forged' : 'user 6dbd...', forged ? 'bad' : 'ok');
+          log.add('accepted: sub 6dbd964a, authorities [deployment:create]', forged ? 'warn' : 'ok');
+          verdict.set(forged ? 'bad' : 'ok', forged
+            ? 'A forged token authenticated. The service believed the header\'s algorithm, so the attacker chose a check they could satisfy. Turn the switch off and check again.'
+            : 'Authenticated: the principal is the sub, and the authorities are the permissions from teams. Whether this user may deploy to team-A\'s application is a separate decision.');
+          return;
+        }
+        const step = ANATOMY_STEPS[r.stoppedAt];
+        const header = s.scheme === 'bearer' ? 'Bearer error="invalid_token"' + (leak ? ', error_description="' + step.logged + '"' : '') : 'Bearer';
+        statusRo.set('401', 'bad');
+        stoppedRo.set('check ' + (r.stoppedAt + 1), 'bad');
+        headerRo.set(header, leak ? 'bad' : null);
+        callerRo.set('none', 'bad');
+        bodyEl.append(problemBody(step.logged));
+        log.add('401: ' + step.logged, 'warn');
+        verdict.set(leak ? 'warn' : 'ok', leak
+          ? 'Stopped at check ' + (r.stoppedAt + 1) + ', and the response now says why. The caller knows exactly which check to get past next.'
+          : 'Stopped at check ' + (r.stoppedAt + 1) + '. The caller sees the same 401 body for every failure; only the server log knows the reason.');
+      }
+
+      picker.addEventListener('change', () => { paintToken(); clearResult(); });
+
+      el.append(
+        h('div', { class: 'sim-controls' }, pickerLabel, checkBtn, trustTg.el, leakTg.el),
+        noteEl,
+        h('div', { class: 'sim-cols' }, h('div', { class: 'stack' }, decoded), h('div', { class: 'stack' }, ui.panel('The service checks, in order', stepsEl))),
+        h('div', { class: 'readouts' }, statusRo.el, stoppedRo.el, headerRo.el, callerRo.el),
+        verdict.el,
+        bodyEl,
+        log.el
+      );
+      paintToken();
+      clearResult();
+      verdict.set(null, 'Pick a token and press Check.');
+    }
+  });
+
   AF.register({
     id: 'sec-jwt',
     group: 'security',
-    order: 3,
+    order: 4,
     title: 'Tokens, rotation and revocation',
     question: 'How can every service trust a caller without asking the login service on every request, and still cut off access quickly when a role is revoked?',
-    status: 'planned',
+    status: 'progress',
     slice: 'S4',
     where: [
+      'docs/design/control-api/control-api-s4-1-jwt-validation.md (the control-api side: RS256 with a configured public key, validators, the algorithm-confusion test, 401 and 403 as problems; built and closed 2026-10-03; identity-service, refresh rotation and the denylist are still planned)',
+      'common-security/src/main/java/io/appfleet/security/ (JwtSecurityAutoConfiguration, AppfleetJwtAuthenticationConverter, ProblemAuthenticationEntryPoint, ProblemAccessDeniedHandler) and src/test/java/.../testing/ (TestKeys, TestJwt)',
       'docs/specs/project/02-IDENTITY-SERVICE.md, Token design',
       'docs/specs/project/02-IDENTITY-SERVICE.md, Security hardening',
       'docs/specs/project/06-BUSINESS-REQUIREMENTS.md, FR-3.3 and NFR-6'
@@ -610,7 +851,8 @@
     idea: [
       'identity-service signs each access token with an RSA private key (RS256) and publishes the public key at /.well-known/jwks.json, tagged with a kid so keys can rotate. Every other service verifies the signature itself, so no network call sits on the request path. With a shared HMAC secret every verifier could also mint tokens; with RSA only identity-service can.',
       'The price of local checks is revocation: a signed token stays valid until it expires. Access tokens live at most 15 minutes and carry sub, jti and a compact team-scoped permissions claim, kept under about 1 KB because it rides in a header. To cut access sooner, put the jti on a Redis denylist with a TTL of the token\'s remaining life, or keep expiry short.',
-      'Refresh tokens are one-time use and chained by a family id. A consumed refresh token coming back means someone copied it, so the whole family is revoked. Logins check BCrypt at cost 12, which makes identity-service CPU-bound, and repeated failures in a sliding window (Redis INCR + EXPIRE) lock the account with 423 and Retry-After, behind one uniform error message.'
+      'Refresh tokens are one-time use and chained by a family id. A consumed refresh token coming back means someone copied it, so the whole family is revoked. Logins check BCrypt at cost 12, which makes identity-service CPU-bound, and repeated failures in a sliding window (Redis INCR + EXPIRE) lock the account with 423 and Retry-After, behind one uniform error message.',
+      'What building the verifying side found (S4.1): the validator list is the security, so each one needs a test that fails without it (issuer, audience, timestamp, and a decoder that wrongly accepts HS256 with the public key as the secret). The 401 header can leak the reason: Spring\'s bearer entry point adds error_description, so the entry point writes the header itself from the error code only. A catch-all @ExceptionHandler(Exception.class) swallows AccessDeniedException into a 500 before the filter chain can answer 403, so security exceptions are rethrown. And configuration slips (a property under the wrong YAML key, a directory with a leading space) pass every unit test and show only in the application.'
     ],
     terms: [
       ['jti', 'JWT id: a unique id per token, and the key of a denylist entry.'],
@@ -2161,4 +2403,86 @@
       resetBoard();
     }
   });
+
+  AF.register({
+    id: 'sec-openapi',
+    group: 'security',
+    order: 5,
+    title: 'Security in the OpenAPI document',
+    question: 'How does the generated API description say that every call needs a token and a permission, and who may read the description itself?',
+    status: 'built',
+    slice: 'S4.6',
+    where: [
+      'control-api/src/main/java/io/appfleet/control/web/openapi/OpenApiConfig.java (bearerAuth scheme, global security item, WWW-Authenticate header)',
+      'control-api/src/main/java/io/appfleet/control/web/openapi/ErrorResponseCustomizer.java (global 401 and 403, x-required-permission)',
+      'control-api/src/main/java/io/appfleet/control/web/SecurityConfig.java (appfleet.docs.public)',
+      'OpenApiContractTest (tests 1 to 6 of S4.6), DocsExposureTest',
+      'docs/design/control-api/control-api-s4-6-openapi-security.md'
+    ],
+    idea: [
+      'The document declares one scheme, bearerAuth (HTTP bearer, JWT), and one global requirement that names it, so no operation can be listed as public by mistake. Every operation also lists 400, 401, 403 and 429 as answers, and the 401 response documents the WWW-Authenticate header that ProblemAuthenticationEntryPoint sets. Swagger UI draws its Authorize button from the scheme.',
+      'The permission of each operation is not typed into the document. ErrorResponseCustomizer reads it from @PreAuthorize("hasAuthority(...)") and writes it as x-required-permission and as one sentence in the description, so the document cannot say a permission the code does not enforce. If a handler has no @PreAuthorize in the expected form, the customizer throws and /v3/api-docs answers 500. Measured 2026-10-06: with one @PreAuthorize removed, 14 of 14 OpenApiContractTest tests turned red while the application still started.',
+      'Who may read the document is a property, appfleet.docs.public. It is true locally, because Swagger UI fetches the JSON with a plain browser request that cannot carry a token, and false in prod, where the JSON needs any valid token and the UI is off. Measured: with the property false, a request without a token to /v3/api-docs got 401 with application/problem+json and WWW-Authenticate: Bearer, and a request with any valid token got 200. A test of this must use real HTTP: the MockMvc in WebIntegrationTest does not run the security chain, and with the property false it still answered 200.'
+    ],
+    terms: [
+      ['Security scheme', 'A named way to authenticate, declared once under components.securitySchemes. bearerAuth means "send Authorization: Bearer <token>".'],
+      ['Global security requirement', 'A top-level list that applies to every operation unless the operation overrides it. A contract test checks that none does.'],
+      ['x-required-permission', 'An extension field, not part of the OpenAPI standard. Appfleet fills it from @PreAuthorize so the two cannot drift.'],
+      ['appfleet.docs.public', 'Whether the OpenAPI JSON and Swagger UI paths are open (true) or need a valid token (false).']
+    ],
+    tryIt: [
+      'Choose "Local" and "No token": the document is served, the UI works.',
+      'Choose "Prod" and "No token": 401 in the problem shape. Choose "Prod" and "Any valid token": 200.',
+      'Choose "Prod" with "MockMvc test": a test that uses MockMvc reports 200 and would pass for the wrong reason.'
+    ],
+    breakIt: 'Remove one @PreAuthorize from a controller. The document answers 500 and every contract test that reads it fails. Measured on a scratch copy: 14 of 14.',
+    say: 'The OpenAPI document declares one bearer scheme with a global requirement and lists 401 and 403 on every operation, the permission of each operation is read from @PreAuthorize so it cannot drift, and in prod the document itself needs a token, which I proved with a real HTTP test because MockMvc skips the security chain.',
+    quiz: {
+      q: 'A test sets appfleet.docs.public=false and uses MockMvc to GET /v3/api-docs with no token. It gets 200. What does that show?',
+      options: [
+        'The property is ignored by Spring Security',
+        'MockMvc in this project does not run the security filter chain, so the test cannot prove the rule',
+        'The document is public in every profile',
+        'The token is optional for GET requests'
+      ],
+      answer: 1,
+      why: 'Measured 2026-10-06: the same configuration answered 401 over real HTTP (RANDOM_PORT and HttpClient) and 200 through MockMvc.'
+    },
+    mount(el) {
+      const verdict = ui.verdict();
+      const profile = ui.choice('Profile', [
+        { value: 'local', label: 'Local (public = true)' },
+        { value: 'prod', label: 'Prod (public = false)' }
+      ], 'local', render);
+      const caller = ui.choice('Caller', [
+        { value: 'none', label: 'No token' },
+        { value: 'valid', label: 'Any valid token' },
+        { value: 'mock', label: 'MockMvc test, no token' }
+      ], 'none', render);
+
+      function render() {
+        const p = profile.get(), c = caller.get();
+        if (p === 'local') {
+          verdict.set('ok', c === 'mock'
+            ? '200. Correct here, but only because the document is open; this test proves nothing about prod.'
+            : '200: the document is open, so Swagger UI can fetch it. Measured by JwtAuthenticationTest.docsPathsAreOpen.');
+        } else if (c === 'valid') {
+          verdict.set('ok', '200: any valid token is enough, no particular permission. Measured by DocsExposureTest.');
+        } else if (c === 'mock') {
+          verdict.set('bad', '200 through MockMvc, which skips the security chain: a false pass. Measured 2026-10-06; use real HTTP.');
+        } else {
+          verdict.set('ok', '401, application/problem+json, WWW-Authenticate: Bearer. Measured by DocsExposureTest.');
+        }
+      }
+
+      el.append(
+        h('div', { class: 'sim-controls' }, profile.el, caller.el),
+        h('div', { class: 'sim-stage' }, h('div', { class: 'stack' })),
+        note('Illustrative model of one decision. Every verdict is backed by a test run on 2026-10-06 (DocsExposureTest, JwtAuthenticationTest.docsPathsAreOpen, and the MockMvc finding).'),
+        verdict.el
+      );
+      render();
+    }
+  });
+
 })();

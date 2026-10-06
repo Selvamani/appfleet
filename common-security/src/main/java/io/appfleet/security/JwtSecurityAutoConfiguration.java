@@ -36,7 +36,8 @@ public class JwtSecurityAutoConfiguration {
                 new JwtTimestampValidator(p.clockSkew()),
                 new JwtIssuerValidator(p.issuer()),
                 new JwtClaimValidator<List<String>>(JwtClaimNames.AUD,
-                        aud -> aud != null && aud.contains(p.audience())));
+                        aud -> aud != null && aud.contains(p.audience())),
+                new JwtClaimValidator<String>(JwtClaimNames.SUB, s -> s != null && !s.isBlank()));
         decoder.setJwtValidator(validators);
         return decoder;
     }
@@ -58,6 +59,4 @@ public class JwtSecurityAutoConfiguration {
     ProblemAccessDeniedHandler problemAccessDeniedHandler(ObjectProvider<JsonMapper> mapper) {
         return new ProblemAccessDeniedHandler(mapper.getIfAvailable(JsonMapper::new));
     }
-
-
 }

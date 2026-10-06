@@ -145,10 +145,10 @@ Each has a recommendation so the answer can be one word.
 
 ## 6. Definition of done for S3
 
-- [ ] S3.1 to S3.7 each have their own design doc and are implemented and green
+- [x] S3.1 to S3.7 each have their own design doc and are implemented and green
 - [ ] `ProblemDetail` for every failure, one shape, with a passing shape test per `type`
-- [ ] Every endpoint documented in OpenAPI including error shapes
+- [x] Every endpoint documented in OpenAPI including error shapes ([control-api-s3-7-openapi.md](control-api-s3-7-openapi.md) §11)
 - [x] Two concurrent identical `POST /deployments` with one idempotency key create exactly one deployment ([control-api-s3-5-idempotency.md](control-api-s3-5-idempotency.md) §11.3)
 - [x] Offset-versus-cursor numbers at page 10,000 recorded in `/docs` ([control-api-s3-4-task-history.md](control-api-s3-4-task-history.md) §12)
-- [ ] Rate limiter returns 429 with `Retry-After`
-- [ ] `mvn verify` green with Testcontainers Postgres and Redis
+- [x] Rate limiter returns 429 with `Retry-After`
+- [x] `mvn verify` green with Testcontainers Postgres and Redis (222 tests, 2026-10-02)

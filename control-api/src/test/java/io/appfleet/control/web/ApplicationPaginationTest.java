@@ -47,7 +47,7 @@ public class ApplicationPaginationTest extends WebIntegrationTest {
 
     private String createApp() throws Exception {   // returns app id
         MvcResult r = mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON)
-                        .content(appJson(uniqueName(), UUID.randomUUID())))
+                        .content(appJson(uniqueName(), TestAuth.TEAM)))
                 .andExpect(status().isCreated()).andReturn();
         return com.jayway.jsonpath.JsonPath.read(r.getResponse().getContentAsString(), "$.id");
     }

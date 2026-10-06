@@ -21,7 +21,9 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.Authentication;
 
 import java.net.URI;
 import java.util.UUID;
@@ -30,8 +32,6 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/deployments")
 public class DeploymentController {
-
-    private static final String SYSTEM_ACTOR = "system";   // until S4 provides a principal
 
     private final DeploymentService service;
     private final TaskService taskService;
@@ -53,17 +53,20 @@ public class DeploymentController {
             content = @Content(mediaType = "application/json", schema = @Schema(implementation = DeploymentAccepted.class)))
     @ProblemResponses({ProblemKind.UNPROCESSABLE, ProblemKind.CONFLICT, ProblemKind.REQUEST_IN_PROGRESS,
             ProblemKind.IDEMPOTENCY_KEY_REUSED, ProblemKind.SERVICE_UNAVAILABLE})
+    @PreAuthorize("hasAuthority('deployment:create')")
     @PostMapping
     public ResponseEntity<DeploymentAccepted> requestDeployment(
             @Valid @RequestBody CreateDeploymentRequest request,
-            @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey) {
+            @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
+            Authentication authentication) {
         Idempotent<DeploymentAccepted> outcome;
+        String actor = authentication.getName();
         if (idempotencyKey == null) {
-            outcome = new Idempotent<>(service.requestDeployment(request, SYSTEM_ACTOR), false);
+            outcome = new Idempotent<>(service.requestDeployment(request, actor), false);
         } else {
             IdempotencyKeys.validate(idempotencyKey);
-            outcome = idempotencyExecutor.execute("deployments:" + idempotencyKey, request, DeploymentAccepted.class,
-                    () -> service.requestDeployment(request, SYSTEM_ACTOR));
+            outcome = idempotencyExecutor.execute("deployments:" + actor + ":" + idempotencyKey, request, DeploymentAccepted.class,
+                    () -> service.requestDeployment(request, actor));
         }
         DeploymentAccepted accepted = outcome.value();
         return ResponseEntity.accepted()
@@ -74,6 +77,7 @@ public class DeploymentController {
 
     @Operation(summary = "Get a deployment", description = "Returns one deployment with its current status.")
     @ProblemResponses({ProblemKind.NOT_FOUND})
+    @PreAuthorize("hasAuthority('deployment:read')")
     @GetMapping("/{id}")
     public DeploymentResponse get(@PathVariable UUID id) {
         return service.get(id);
@@ -81,15 +85,17 @@ public class DeploymentController {
 
     @Operation(summary = "Request a rollback",
             description = "Accepted, not done: a ROLLBACK task is recorded and the deployment status does not change yet. "
-                    + "Follow the Location header to GET /tasks/{id}. A second rollback while one is open is a 409.")
+                    + "Follow the Location header to GET /tasks/{id}. A @second rollback while one is open is a 409.")
     @ApiResponse(responseCode = "202", description = "Accepted",
             headers = @Header(name = "Location", description = "URL of the task to poll", schema = @Schema(type = "string")),
             content = @Content(mediaType = "application/json", schema = @Schema(implementation = RollbackAccepted.class)))
     @ProblemResponses({ProblemKind.NOT_FOUND, ProblemKind.ILLEGAL_TRANSITION, ProblemKind.CONFLICT,
             ProblemKind.CONCURRENT_MODIFICATION})
+    @PreAuthorize("hasAuthority('deployment:rollback')")
     @PostMapping("/{id}/rollback")
-    public ResponseEntity<RollbackAccepted> requestRollback(@PathVariable UUID id) {
-        RollbackAccepted accepted = service.requestRollback(id, SYSTEM_ACTOR);
+    public ResponseEntity<RollbackAccepted> requestRollback(@PathVariable UUID id, Authentication authentication) {
+        String actor = authentication.getName();
+        RollbackAccepted accepted = service.requestRollback(id, actor);
         return ResponseEntity.accepted().location(URI.create("/api/v1/tasks/"+accepted.taskId())).body(accepted);
     }
 
@@ -97,6 +103,7 @@ public class DeploymentController {
             description = "A cursor page, ordered by id. Cost does not grow with depth: prefer it to the by-offset form. "
                     + "Pass nextCursor as cursor for the next page; a null nextCursor is the last page.")
     @ProblemResponses({ProblemKind.NOT_FOUND})
+    @PreAuthorize("hasAuthority('deployment:read')")
     @GetMapping("/{id}/tasks")
     public CursorPage<TaskResponse> tasks(@PathVariable UUID id,
                                         @RequestParam(required = false) String cursor,
@@ -108,6 +115,7 @@ public class DeploymentController {
     @Operation(summary = "List the tasks of a deployment (offset)",
             description = "A zero-based page of tasks. Kept for comparison with the cursor form: the cost of a page grows with its depth.")
     @ProblemResponses({ProblemKind.NOT_FOUND})
+    @PreAuthorize("hasAuthority('deployment:read')")
     @GetMapping("/{id}/tasks/by-offset")
     public OffsetPage<TaskResponse> tasksByOffset(@PathVariable UUID id,
                                                   @RequestParam(defaultValue = "0") @Min(0) int page,

@@ -1,0 +1,27 @@
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: var(--control-h);
+  padding: 0 1.15rem;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--control-border);
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.btn:hover { background: var(--hover); color: var(--ink); }
+.primary { background: var(--accent); border-color: var(--accent); color: var(--ok-solid-ink); }
+.primary:hover { background: var(--accent-ink); color: var(--ok-solid-ink); }
+.danger { border-color: var(--bad); color: var(--bad-ink); }
+.danger:hover { background: var(--bad-bg); color: var(--bad-ink); }
+.quiet { border-color: transparent; background: transparent; color: var(--accent); padding: 0 0.6rem; }
+.quiet:hover { background: var(--accent-bg); color: var(--accent-ink); }
+.on, .on:hover { background: var(--ink); border-color: var(--ink); color: var(--ok-solid-ink); }
+.sm { min-height: var(--control-h-sm); padding: 0 0.85rem; font-size: 0.93rem; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn[aria-busy='true'] { cursor: progress; }

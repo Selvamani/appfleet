@@ -1,0 +1,1 @@
+CREATE INDEX idx_application_owner_team_id ON application (owner_team_id, id);

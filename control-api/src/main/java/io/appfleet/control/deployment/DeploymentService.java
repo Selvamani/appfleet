@@ -4,7 +4,6 @@ import io.appfleet.control.application.Application;
 import io.appfleet.control.application.ApplicationRepository;
 import io.appfleet.control.application.Release;
 import io.appfleet.control.application.ReleaseRepository;
-import io.appfleet.control.application.web.ApplicationResponse;
 import io.appfleet.control.audit.AuditEvent;
 import io.appfleet.control.audit.AuditEventRecorder;
 import io.appfleet.control.common.NotFoundException;
@@ -15,12 +14,13 @@ import io.appfleet.control.deployment.web.DeploymentResponse;
 import io.appfleet.control.deployment.web.RollbackAccepted;
 import io.appfleet.control.environment.Environment;
 import io.appfleet.control.environment.EnvironmentRepository;
+import io.appfleet.control.outbox.OutboxWriter;
+import io.appfleet.control.security.TeamAccess;
 import io.appfleet.control.task.Task;
 import io.appfleet.control.task.TaskRepository;
 import io.appfleet.control.task.TaskStatus;
-import io.appfleet.control.web.CursorCodec;
-import io.appfleet.control.web.CursorPage;
-import org.springframework.data.domain.Limit;
+import io.appfleet.events.CommandType;
+import io.appfleet.events.DeploymentCommand;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,14 +41,18 @@ public class DeploymentService {
     private final ReleaseRepository releaseRepository;
     private final EnvironmentRepository environmentRepository;
     private final TaskRepository taskRepository;
+    private final TeamAccess teamAccess;
+    private final OutboxWriter outboxWriter;
 
-    public DeploymentService(DeploymentRepository deploymentRepository, AuditEventRecorder auditEventRecorder, ApplicationRepository applicationRepository, ReleaseRepository releaseRepository, EnvironmentRepository environmentRepository, TaskRepository taskRepository) {
+    public DeploymentService(DeploymentRepository deploymentRepository, AuditEventRecorder auditEventRecorder, ApplicationRepository applicationRepository, ReleaseRepository releaseRepository, EnvironmentRepository environmentRepository, TaskRepository taskRepository, TeamAccess teamAccess, OutboxWriter outboxWriter) {
         this.deploymentRepository = deploymentRepository;
         this.auditEventRecorder = auditEventRecorder;
         this.applicationRepository = applicationRepository;
         this.releaseRepository = releaseRepository;
         this.environmentRepository = environmentRepository;
         this.taskRepository = taskRepository;
+        this.teamAccess = teamAccess;
+        this.outboxWriter = outboxWriter;
     }
 
     @Transactional
@@ -102,6 +106,8 @@ public class DeploymentService {
     public DeploymentAccepted requestDeployment(CreateDeploymentRequest request, String actor) {
         Application application = applicationRepository.findById(request.applicationId())
                 .orElseThrow(() ->  new UnprocessableRequestException("Application " + request.applicationId() + " does not exist."));
+        teamAccess.require("deployment:create", application.getOwnerTeamId(),
+                () -> new UnprocessableRequestException("Application " + request.applicationId() + " does not exist."));
         Release release = releaseRepository.findByIdAndApplication_Id(request.releaseId(), request.applicationId())
                 .orElseThrow(() -> new UnprocessableRequestException("Release " + request.releaseId() + " does not exist for application " + request.applicationId() + "."));
         Environment environment = environmentRepository.findByName(request.environment())
@@ -110,13 +116,16 @@ public class DeploymentService {
         deploymentRepository.saveAndFlush(deployment);
         Task task = taskRepository.save(new Task(deployment, Task.DEPLOY));
         auditEventRecorder.record(new AuditEvent(actor, "DEPLOYMENT_REQUESTED", "deployment", deployment.getId(), null));
+        outboxWriter.write(DeploymentCommand.of(CommandType.DEPLOY, task.getId(), deployment.getId(),
+                application.getId(), release.getId(), environment.getName(), actor));
         return new DeploymentAccepted(deployment.getId(), task.getId(), deployment.getStatus());
     }
 
     @Transactional
     public RollbackAccepted requestRollback(UUID deploymentId, String actor) {
         Deployment deployment = deploymentRepository.findLockedById(deploymentId).orElseThrow(() -> new NotFoundException("Deployment", deploymentId));
-
+        teamAccess.require("deployment:rollback", deployment.getApplication().getOwnerTeamId(),
+                () -> new NotFoundException("Deployment", deploymentId));
         if(!deployment.getStatus().canTransitionTo(DeploymentState.ROLLED_BACK)) {
             throw new IllegalTransitionException("Illegal transition from " + deployment.getStatus() + " to " + DeploymentState.ROLLED_BACK);
         }
@@ -127,15 +136,15 @@ public class DeploymentService {
 
         Task task = taskRepository.save(new Task(deployment, Task.ROLLBACK));
         auditEventRecorder.record(new AuditEvent(actor, "ROLLBACK_REQUESTED", "deployment", deployment.getId(), null));
+        outboxWriter.write(DeploymentCommand.of(CommandType.ROLLBACK, task.getId(), deployment.getId(),
+                deployment.getApplication().getId(), deployment.getRelease().getId(), deployment.getEnvironment().getName(), actor));
         return new RollbackAccepted(deployment.getId(), task.getId());
     }
 
     @Transactional(readOnly = true)
     public DeploymentResponse get(UUID id) {
         Deployment deployment = deploymentRepository.findDetailById(id).orElseThrow(() -> new NotFoundException("Deployment", id));
+        teamAccess.require("deployment:read", deployment.getApplication().getOwnerTeamId(), () ->  new NotFoundException("Deployment", id));
         return DeploymentResponse.from(deployment);
     }
-
-
-
 }

@@ -1,0 +1,1 @@
+CREATE INDEX idx_outbox_pending ON outbox_message (id) WHERE sent_at IS NULL;

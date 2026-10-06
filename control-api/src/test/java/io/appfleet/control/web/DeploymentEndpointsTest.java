@@ -308,5 +308,37 @@ public class DeploymentEndpointsTest extends WebIntegrationTest {
         assertThat(count("select count(*) from audit_event where action = 'ROLLBACK_REQUESTED' and target_id = ?", id))
                 .isEqualTo(expectedAudit);
     }
+
+    @Test
+    void auditActor_isTheTokenSub() throws Exception {
+        UUID caller = UUID.randomUUID();
+        TestFixtures.Fixture f = fixtures.fixture();
+        MvcResult r = mockMvc.perform(post(URL)
+                        .header("Authorization", "Bearer " + TestAuth.tokenFor(caller))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body(f)))
+                .andExpect(status().isAccepted())
+                .andReturn();
+        UUID deploymentId = UUID.fromString(JsonPath.read(r.getResponse().getContentAsString(), "$.deploymentId"));
+
+        assertThat(jdbc.queryForObject(
+                "select actor from audit_event where action = 'DEPLOYMENT_REQUESTED' and target_id = ?",
+                String.class, deploymentId)).isEqualTo(caller.toString());
+    }
+
+    @Test
+    void rollbackAudit_actor_isTheTokenSub() throws Exception {
+        UUID caller = UUID.randomUUID();
+        UUID id = fixtures.deploymentIn(HEALTHY);
+        mockMvc.perform(post(URL + "/" + id + "/rollback")
+                        .header("Authorization", "Bearer " + TestAuth.tokenFor(caller)))
+                .andExpect(status().isAccepted());
+
+        assertThat(jdbc.queryForObject(
+                "select actor from audit_event where action = 'ROLLBACK_REQUESTED' and target_id = ?",
+                String.class, id)).isEqualTo(caller.toString());
+    }
+
+
 }
 

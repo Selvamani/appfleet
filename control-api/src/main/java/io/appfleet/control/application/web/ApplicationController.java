@@ -15,6 +15,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.net.URI;
@@ -37,6 +38,7 @@ public class ApplicationController {
             headers = @Header(name = "Location", description = "URL of the new application", schema = @Schema(type = "string")),
             content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApplicationResponse.class)))
     @ProblemResponses({ProblemKind.CONFLICT})
+    @PreAuthorize("hasAuthority('application:create')")
     @PostMapping
     public ResponseEntity<ApplicationResponse> create(@Valid @RequestBody CreateApplicationRequest request) {
         ApplicationResponse created = service.create(request);
@@ -45,6 +47,7 @@ public class ApplicationController {
 
     @Operation(summary = "Get an application", description = "Returns one application by id.")
     @ProblemResponses({ProblemKind.NOT_FOUND})
+    @PreAuthorize("hasAuthority('application:read')")
     @GetMapping("/{id}")
     public ApplicationResponse get(@PathVariable UUID id) {
         return service.get(id);
@@ -53,6 +56,7 @@ public class ApplicationController {
     @Operation(summary = "List applications",
             description = "A cursor page, ordered by id. Pass the nextCursor of one page as the cursor of the next; "
                     + "a null nextCursor is the last page. An invalid cursor is a 400.")
+    @PreAuthorize("hasAuthority('application:read')")
     @GetMapping
     public CursorPage<ApplicationResponse> list(@RequestParam(required = false) String cursor, @RequestParam(defaultValue = "20") @Min(1) @Max(100) int limit) {
         UUID decodedCursor = cursor == null ? null : CursorCodec.decode(cursor);
@@ -65,6 +69,7 @@ public class ApplicationController {
             headers = @Header(name = "Location", description = "URL of the new release", schema = @Schema(type = "string")),
             content = @Content(mediaType = "application/json", schema = @Schema(implementation = ReleaseResponse.class)))
     @ProblemResponses({ProblemKind.NOT_FOUND, ProblemKind.CONFLICT})
+    @PreAuthorize("hasAuthority('application:create')")
     @PostMapping("/{id}/releases")
     public ResponseEntity<ReleaseResponse> createRelease(@PathVariable UUID id, @Valid @RequestBody CreateReleaseRequest request) {
         ReleaseResponse created = service.createRelease(id, request);
@@ -73,6 +78,7 @@ public class ApplicationController {
 
     @Operation(summary = "Get a release", description = "Returns one release of the application. A release of another application is a 404.")
     @ProblemResponses({ProblemKind.NOT_FOUND})
+    @PreAuthorize("hasAuthority('application:read')")
     @GetMapping("/{id}/releases/{releaseId}")
     public ReleaseResponse getRelease(@PathVariable UUID id, @PathVariable UUID releaseId) {
         return service.getRelease(id, releaseId);

@@ -1,0 +1,60 @@
+/*
+ * Design tokens, carried over from docs/design/ux/appfleet-ux-preview.html.
+ * Component CSS modules use these variables only; no hex values outside this file.
+ *
+ * Breakpoints. CSS variables cannot be used inside media queries, so these four values are
+ * the only ones allowed in @media rules anywhere in the app:
+ *   760px   sidebar becomes a horizontal bar
+ *   860px   two-column layouts stack
+ *   1800px  Full HD: root font 15px, paired sections side by side
+ *   2400px  2K: root font 16px
+ */
+:root {
+  --bg: #f5f5f2;
+  --surface: #ffffff;
+  --surface-sunk: #fafaf8;
+  --ink: #1c1c1c;
+  --ink-2: #3d3d3d;
+  --muted: #5c5c5c;
+  --line: #d6d6d1;
+  --line-2: #ecece7;
+  --hover: #f0f0ec;
+  --row-hover: #f6f6f3;
+  --nav-hover: #efefeb;
+
+  --accent: #1f4fbf;
+  --accent-ink: #163a8c;
+  --accent-bg: #eef2fc;
+  --selected: #e7edfb;
+
+  --bad: #b2470c;
+  --bad-ink: #8f3a09;
+  --bad-bg: #fdf1e8;
+  --warn-border: #d9a07a;
+  --warn-bg: #fdf3ec;
+  --warn-ink: #6e2f08;
+  --ok-solid: #2b2b2b;
+  --ok-solid-ink: #ffffff;
+  --info-border: #9fb4e6;
+  --control-border: #b5b5ae;
+  --field-border: #c6c6c0;
+
+  --dev: #fff6cc;
+  --dev-line: #b8901a;
+  --dev-ink: #4d3b00;
+
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  --radius-s: 6px;
+  --radius-m: 8px;
+  --side: clamp(220px, 12vw, 300px);
+  --gutter: clamp(16px, 1.6vw, 48px);
+  --gap: clamp(16px, 1.1vw, 28px);
+  --control-h: 2.85rem;
+  --control-h-sm: 2.3rem;
+}
+
+html { font-size: 14px; }
+@media (min-width: 1800px) { html { font-size: 15px; } }
+@media (min-width: 2400px) { html { font-size: 16px; } }

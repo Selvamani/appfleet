@@ -188,17 +188,10 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 .body(response.getBody());
     }
 
-    @ExceptionHandler(InvalidHeaderException.class)
-    ResponseEntity<ProblemDetail> invalidHeader(InvalidHeaderException ex, WebRequest req) {
-        ResponseEntity<ProblemDetail> response = problem(ProblemKind.VALIDATION_FAILED, "One or more parameters are invalid.", req);
-        response.getBody().setProperty("errors", List.of(Map.of("field", ex.header(), "message", "Must be a UUID.")));
-        return response;
-    }
-
     @ExceptionHandler(RateLimitedException.class)
     ResponseEntity<ProblemDetail> rateLimited(RateLimitedException ex, WebRequest req) {
         long seconds = Math.max(1, (ex.retryAfter().toMillis() + 999) / 1000);   // round up, never 0
-        ResponseEntity<ProblemDetail> response = problem(ProblemKind.RATE_LIMITED, "The rate limit for this team is exhausted. Retry after the time given in Retry-After.", req);
+        ResponseEntity<ProblemDetail> response = problem(ProblemKind.RATE_LIMITED, "The rate limit for this caller is exhausted. Retry after the time given in Retry-After.", req);
         return ResponseEntity.status(response.getStatusCode())
                 .header(HttpHeaders.RETRY_AFTER, String.valueOf(seconds))
                 .body(response.getBody());

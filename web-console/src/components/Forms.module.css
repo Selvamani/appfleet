@@ -1,0 +1,63 @@
+.field { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
+.label { display: block; font-size: 0.9rem; font-weight: 600; color: var(--ink-2); }
+.control {
+  width: 100%;
+  min-height: var(--control-h);
+  border: 1px solid var(--field-border);
+  border-radius: var(--radius-s);
+  padding: 0 0.7rem;
+  background: var(--surface);
+  color: var(--ink);
+}
+.search { flex: 1 1 17rem; min-width: min(16rem, 100%); max-width: 32rem; padding: 0 0.85rem; }
+.invalid { border-color: var(--bad); }
+.hint { font-size: 0.86rem; color: var(--muted); }
+.error { font-size: 0.86rem; color: var(--bad-ink); font-weight: 500; }
+.fieldset { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
+.fieldset > legend { margin-bottom: 0.4rem; padding: 0; }
+
+.radioCard {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  min-height: 3.15rem;
+  background: var(--surface);
+}
+.radioCard input { accent-color: var(--accent); width: 1.05rem; height: 1.05rem; flex: none; }
+.radioBody { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 1rem; min-width: 0; }
+.checked { border: 2px solid var(--accent); background: var(--accent-bg); }
+.disabled { opacity: 0.55; cursor: not-allowed; }
+
+.toggleCard {
+  flex: 1 1 11.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  padding: 0.85rem;
+  border: 1px solid var(--field-border);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  cursor: pointer;
+  text-align: left;
+  min-height: 3.15rem;
+}
+.toggleCard:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.segmented { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.segment {
+  min-height: var(--control-h-sm);
+  padding: 0 0.85rem;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  font-size: 0.93rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.segment:hover { background: var(--hover); }
+.segmentOn, .segmentOn:hover { background: var(--ink); border-color: var(--ink); color: var(--ok-solid-ink); }
