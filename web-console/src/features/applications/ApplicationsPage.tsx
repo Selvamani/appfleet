@@ -1,16 +1,15 @@
-import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router';
 import { listApplications } from '../../api/control';
-import { listTeams } from '../../api/identity';
 import { qk } from '../../api/keys';
 import type { ApplicationResponse } from '../../api/types';
 import { usePermissions } from '../../auth/usePermissions';
+import { useTeams } from '../../auth/useTeams';
 import {
   ButtonLink, Card, DataTable, EmptyState, ErrorNotice, LoadMore, Loading, PageHeader, SearchField, type Column,
 } from '../../components';
 import { useCursorList } from '../../hooks/useCursorList';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
-import { formatDate, shortId } from '../../lib/format';
+import { formatDate } from '../../lib/format';
 
 /**
  * Reference feature: the pattern every screen follows.
@@ -27,9 +26,8 @@ export function ApplicationsPage() {
   const q = params.get('q') ?? '';
 
   const apps = useCursorList(qk.applications(), cursor => listApplications(cursor));
-  const teams = useQuery({ queryKey: qk.teams(), queryFn: listTeams, staleTime: 10 * 60_000 });
-  // Unknown ids happen in hybrid mode (live applications, simulated teams): show a short id, not a blank.
-  const teamName = (id: string) => (teams.data ? teams.data.find(t => t.id === id)?.name ?? `Team ${shortId(id)}` : '…');
+  // Names are known to platform administrators only; everyone else sees the start of the team id (see useTeams).
+  const { nameOf: teamName } = useTeams();
 
   const needle = q.trim().toLowerCase();
   const rows = apps.items.filter(a => !needle || a.name.includes(needle) || (a.description ?? '').toLowerCase().includes(needle));

@@ -185,7 +185,7 @@ export const controlHandlers = [
     const dep = db.deployments.find(d => d.id === params.id);
     const app = dep && visibleApp(dep.applicationId);
     if (!dep || !app) return notFound(request, `Deployment ${String(params.id)}`);
-    if (!allows('deployment:rollback', app.ownerTeamId)) return forbidden(request, `Rolling back ${app.name} needs DEPLOYER on ${teamName(app.ownerTeamId)}.`);
+    if (!allows('deployment:rollback', app.ownerTeamId)) return forbidden(request, `Rolling back ${app.name} needs OPERATOR on ${teamName(app.ownerTeamId)}.`);
     if (dep.status !== 'HEALTHY' && dep.status !== 'DEGRADED') {
       return problem(request, 409, 'illegal-transition', 'Illegal state transition', `Cannot roll back a deployment in state ${dep.status}.`);
     }

@@ -94,7 +94,7 @@ describe('ApplicationPage', () => {
   });
 
   it('accepts a rollback of a HEALTHY deployment', async () => {
-    const { user } = await renderApp(`/applications/${BILLING}`);
+    const { user } = await renderApp(`/applications/${BILLING}`, { role: 'OPERATOR' });
     const prod = await envCard('prod');
     await user.click(within(prod).getByRole('button', { name: 'Roll back 2.3.1 in prod' }));
     expect(await within(prod).findByText('Rollback accepted. A ROLLBACK task is PENDING; the state changes when it runs.')).toBeInTheDocument();

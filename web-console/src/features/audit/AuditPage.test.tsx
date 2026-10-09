@@ -14,7 +14,7 @@ describe('AuditPage', () => {
   });
 
   it('shows an auditor the events, newest first, with the read model freshness', async () => {
-    await renderApp('/audit', { role: 'AUDITOR' });
+    await renderApp('/audit', { role: 'ADMIN' });
     expect(await screen.findByRole('heading', { level: 1, name: 'Audit trail' })).toBeInTheDocument();
     expect(screen.getByText('Who did what, when, to what. Append-only.')).toBeInTheDocument();
     const list = await eventList();
@@ -25,7 +25,7 @@ describe('AuditPage', () => {
   });
 
   it('shows the selected event and walks its correlation id', async () => {
-    const { user } = await renderApp('/audit', { role: 'AUDITOR' });
+    const { user } = await renderApp('/audit', { role: 'ADMIN' });
     const list = await eventList();
     const row = within(list).getByRole('button', { name: /GRANT_REVOKED/ });
     await user.click(row);
@@ -41,7 +41,7 @@ describe('AuditPage', () => {
   });
 
   it('preselects the event a ?cid= link points at', async () => {
-    await renderApp('/audit?cid=c-0be3f5a1', { role: 'AUDITOR' });
+    await renderApp('/audit?cid=c-0be3f5a1', { role: 'ADMIN' });
     const list = await eventList();
     const rows = within(list).getAllByRole('button');
     expect(rows).toHaveLength(1);
@@ -55,7 +55,7 @@ describe('AuditPage', () => {
   });
 
   it('applies filters on submit, keeps them in the URL, and clears them', async () => {
-    const { user, router } = await renderApp('/audit', { role: 'AUDITOR' });
+    const { user, router } = await renderApp('/audit', { role: 'ADMIN' });
     await eventList();
 
     await user.type(screen.getByLabelText('Actor'), 'admin.t');
@@ -80,15 +80,16 @@ describe('AuditPage', () => {
   });
 
   it('shows sign-ins in their own view', async () => {
-    const { user, router } = await renderApp('/audit', { role: 'AUDITOR' });
+    const { user, router } = await renderApp('/audit', { role: 'ADMIN' });
     await eventList();
     await user.click(screen.getByRole('button', { name: 'Sign-ins' }));
     expect(router.state.location.search).toBe('?view=signins');
     expect(screen.getByRole('button', { name: 'Sign-ins' })).toHaveAttribute('aria-pressed', 'true');
 
     const table = await screen.findByRole('table', { name: 'Sign-ins' });
-    expect(within(table).getAllByText('curl/8.9')).toHaveLength(2);
-    expect(within(table).getAllByText('FAILED')).toHaveLength(2);
+    expect(within(table).getAllByText('curl/8.9')).toHaveLength(3);
+    expect(within(table).getAllByText('bad credentials')).toHaveLength(2);
+    expect(within(table).getByText('locked')).toBeInTheDocument();
     expect(within(table).getByRole('link', { name: 'c-e4c1d7b0, show its audit events' })).toHaveAttribute('href', '/audit?cid=c-e4c1d7b0');
   });
 });

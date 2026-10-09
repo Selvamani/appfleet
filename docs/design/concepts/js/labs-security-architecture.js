@@ -2485,4 +2485,877 @@
     }
   });
 
+  AF.register({
+    id: 'sec-scoped-grants',
+    group: 'security',
+    order: 6,
+    title: 'Scoped grants and the role hierarchy',
+    question: 'How can one user be a deployer on Team A and a viewer on Team B, and how does a role bundle end up as the permission lists that a token carries?',
+    status: 'built',
+    slice: 'I1',
+    where: [
+      'identity-service/src/main/resources/db/migration/V2__add_users_roles_teams.sql (team_membership, uq_team_membership_user_team, the seed)',
+      'identity-service/src/main/java/io/appfleet/identity/rbac/RoleHierarchyConfig.java and PermissionResolver.java',
+      'identity-service/src/main/java/io/appfleet/identity/team/TeamMembershipRepository.java (findGrantsByUserId)',
+      'identity-service/src/test/java/io/appfleet/identity/RbacTest.java and ConstraintTest.java',
+      'docs/design/identity-service/identity-i1-domain-and-schema.md (decisions 6 to 8)'
+    ],
+    idea: [
+      'A role is not held by a user. It is held by a user on a team: team_membership(user, team, role), with one row per user per team. The same user can therefore be DEPLOYER on Team A and VIEWER on Team B. A global role is the special case, and tokens carry it separately in a perms list. The database refuses a second role for the same user and team (uq_team_membership_user_team); with a role hierarchy a second role on one team would add nothing.',
+      'Permissions are the atoms and roles are bundles of them, and the bundles hold only their own permissions. VIEWER holds application:read and deployment:read, DEPLOYER holds application:create and deployment:create, OPERATOR holds deployment:rollback and node:drain, ADMIN holds catalog:publish and user:manage. What a role inherits comes from the hierarchy in code, ADMIN > OPERATOR > DEPLOYER > VIEWER. PermissionResolver takes the roles the hierarchy reaches from a given role and unions their permissions. Measured by RbacTest on 2026-10-06: VIEWER resolves to 2 permissions, DEPLOYER to 4, OPERATOR to 6, ADMIN to all 8.',
+      'The hierarchy is the one piece that is not in the database, so a test pins it: removing the line DEPLOYER > VIEWER turned 4 of the 8 RbacTest tests red (admin_holdsEveryPermission, deployer_inheritsViewer, hierarchy_andDatabase_nameTheSameRoles, operator_inheritsDeployerAndViewer), measured on a scratch copy. The reason to expand the hierarchy when a token is built, and not to store the closure, is that a change to the order of roles then needs no data rewrite. All of this feeds the teams claim that control-api reads (a map from team id to a permission list); the token that carries it is step I2 and is designed, not built.'
+    ],
+    terms: [
+      ['Scoped grant', 'A role held on one team: a row in team_membership. The grant has a scope; a global role has none.'],
+      ['Role bundle', 'A role is a named set of permissions. Enforcement checks permissions, never role names, so a new role is a database row.'],
+      ['Role hierarchy', 'An order of roles in which a higher one includes every permission of the lower ones. Here ADMIN > OPERATOR > DEPLOYER > VIEWER, defined in code.'],
+      ['Closure', 'The full set of inherited permissions of a role. Appfleet computes it when a token is built and does not store it.']
+    ],
+    tryIt: [
+      'Leave Team A as DEPLOYER and Team B as VIEWER with the hierarchy on: Team A shows 4 permissions, Team B shows 2, and the deployment:create check is yes for A and no for B.',
+      'Switch the hierarchy off: Team A drops to its own 2 permissions, and application:read and deployment:read disappear. This is the mutation that turned 4 RbacTest tests red.',
+      'Set Team B to ADMIN: it holds all 8 permissions on Team B and still only 4 on Team A. The grant is per team.'
+    ],
+    breakIt: 'Remove DEPLOYER > VIEWER from RoleHierarchyConfig. Every role above DEPLOYER silently loses the VIEWER permissions, nothing fails to compile, and only the tests notice. Measured: 4 of 8 RbacTest tests red.',
+    say: 'Roles are held per team, one role per user per team, as a team_membership row; roles are named bundles of permissions that hold only their own, the hierarchy in code supplies the inherited ones when a token is built, and the token carries a permission list per team so enforcement never looks at role names.',
+    quiz: {
+      q: 'A user is DEPLOYER on Team A and has no membership on Team B. Which request must be refused for Team B?',
+      options: [
+        'Reading a Team B application, because DEPLOYER implies VIEWER everywhere',
+        'Any request that needs a permission for Team B, because the grant exists only on Team A',
+        'Nothing: roles are global once granted',
+        'Only deployments, because reads are always allowed'
+      ],
+      answer: 1,
+      why: 'The grant is a row for one team. The token gets a permission list for Team A and none for Team B, and control-api checks the permission against the object\'s own team (S4.4).'
+    },
+    mount(el) {
+      const ROLES = ['none', 'VIEWER', 'DEPLOYER', 'OPERATOR', 'ADMIN'];
+      const OWN = {
+        VIEWER: ['application:read', 'deployment:read'],
+        DEPLOYER: ['application:create', 'deployment:create'],
+        OPERATOR: ['deployment:rollback', 'node:drain'],
+        ADMIN: ['catalog:publish', 'user:manage']
+      };
+      const ORDER = ['ADMIN', 'OPERATOR', 'DEPLOYER', 'VIEWER'];   // each implies the ones after it
+
+      function effective(role, hierarchy) {
+        if (role === 'none') return [];
+        const at = ORDER.indexOf(role);
+        const roles = hierarchy ? ORDER.slice(at) : [role];
+        const set = [];
+        roles.forEach(r => OWN[r].forEach(p => { if (set.indexOf(p) < 0) set.push(p); }));
+        return set.sort();
+      }
+
+      const roleChoices = ROLES.map(r => ({ value: r, label: r === 'none' ? 'no membership' : r }));
+      const verdict = ui.verdict();
+      const boxA = h('div', { class: 'stack' });
+      const boxB = h('div', { class: 'stack' });
+      const rA = ui.readout('Permissions on Team A');
+      const rB = ui.readout('Permissions on Team B');
+      const rDeployA = ui.readout('deployment:create on A');
+      const rDeployB = ui.readout('deployment:create on B');
+      const teamA = ui.choice('Role on Team A', roleChoices, 'DEPLOYER', render);
+      const teamB = ui.choice('Role on Team B', roleChoices, 'VIEWER', render);
+      const hier = ui.toggle('Role hierarchy', true, render, { tone: 'danger' });
+
+      function fill(box, perms) {
+        AF.clear(box);
+        if (!perms.length) box.append(h('span', { class: 'small muted' }, 'no entry in the teams claim'));
+        perms.forEach(p => box.append(ui.token(p, 'ok')));
+      }
+
+      function render() {
+        const on = hier.get();
+        const a = effective(teamA.get(), on);
+        const b = effective(teamB.get(), on);
+        fill(boxA, a);
+        fill(boxB, b);
+        rA.set(a.length);
+        rB.set(b.length);
+        const da = a.indexOf('deployment:create') >= 0;
+        const db = b.indexOf('deployment:create') >= 0;
+        rDeployA.set(da ? 'yes' : 'no', da ? 'ok' : 'busy');
+        rDeployB.set(db ? 'yes' : 'no', db ? 'ok' : 'busy');
+        if (!on && (teamA.get() === 'DEPLOYER' || teamB.get() === 'DEPLOYER' || teamA.get() === 'OPERATOR' || teamB.get() === 'OPERATOR' || teamA.get() === 'ADMIN' || teamB.get() === 'ADMIN'))
+          verdict.set('bad', 'Without the hierarchy a higher role keeps only its own permissions. Measured: removing DEPLOYER > VIEWER turned 4 of 8 RbacTest tests red (2026-10-06).');
+        else if (teamA.get() === 'none' && teamB.get() === 'none')
+          verdict.set('busy', 'No membership: an empty teams claim, so no permission on any team.');
+        else
+          verdict.set('ok', 'Each team has its own permission list. Role to permission counts are measured by RbacTest (VIEWER 2, DEPLOYER 4, OPERATOR 6, ADMIN 8); the token that carries this is step I2, designed, not built.');
+      }
+
+      el.append(
+        h('div', { class: 'sim-controls' }, teamA.el, teamB.el, hier.el),
+        h('div', { class: 'sim-stage' }, h('div', { class: 'sim-cols' },
+          ui.panel('teams[Team A]', boxA),
+          ui.panel('teams[Team B]', boxB))),
+        h('div', { class: 'readouts' }, [rA, rB, rDeployA, rDeployB].map(r => r.el)),
+        note('Illustrative model of the role-to-permission step. The seeded bundles and the hierarchy order are the real ones from V2 and RoleHierarchyConfig; the claim shape is the contract from control-api S4.1.'),
+        verdict.el
+      );
+      render();
+    }
+  });
+
+  AF.register({
+    id: 'sec-access-token',
+    group: 'security',
+    order: 7,
+    title: 'Issuing the access token: the claim contract, the size and the cap',
+    question: 'What exactly does identity-service put into an access token, how big does it get, and why can one token carry only ten team grants?',
+    status: 'built',
+    slice: 'I2',
+    where: [
+      'identity-service/src/main/java/io/appfleet/identity/auth/AccessTokenIssuer.java (claims, MAX_TEAMS)',
+      'identity-service/src/main/java/io/appfleet/identity/auth/AuthService.java (login)',
+      'identity-service/src/test/java/io/appfleet/identity/AccessTokenContractTest.java and TokenSizeTest.java',
+      'docs/design/identity-service/identity-i2-register-login-token.md (decisions 1, 5, 8, 11)'
+    ],
+    idea: [
+      'The access token is the claim contract of control-api S4.1 and nothing else: iss, sub (the user id), aud, jti (new on every login), iat, exp (15 minutes later) and teams, a map from team id to the permission list that team grants, with the role hierarchy already expanded. There is no roles claim and no perms claim, and teams is absent, not empty, when the user has no grants. The test that proves the contract does not read the token by hand: it decodes it with common-security\'s own JwtDecoder and maps it with its own authority converter, the pieces control-api runs.',
+      'The token travels in a header, so its size is a number to know. Measured on 2026-10-06 (characters of the compact token, RS256 with a 2048-bit key): no grants 604, one VIEWER team 722, one DEPLOYER team 776, one ADMIN team 866, five DEPLOYER teams 1411, ten ADMIN teams 3098, twenty ADMIN teams 5578. The spec\'s "about 1 KB" is exceeded before the first grant: the signature of a 2048-bit key is 256 bytes, 342 characters (reasoned from the key size, not measured separately). So the cap is 10 grants, chosen so that the worst case, ADMIN on every team, stays under 4 KB, the smallest header limit commonly met; the plan\'s first figure of 20 was changed after this measurement. A user above the cap gets no token.',
+      'Three smaller findings from the same step. Login gives one identical body for an unknown email, a wrong password and a deactivated user (measured by comparing the three responses); the timing is not yet equal, which is I5. A password of 40 accented characters is 80 bytes, and BCrypt reads only 72 bytes, so it is refused with a 400 and never silently truncated. And Spring\'s Jwt.getIssuer() throws for iss = appfleet-identity, because it converts the claim to a URL; code that needs the issuer must read the string claim.'
+    ],
+    terms: [
+      ['Claim contract', 'The agreed set and shape of claims between the issuer and every verifier. identity builds to control-api\'s contract and proves it with a test that uses the verifier\'s own decoder.'],
+      ['teams claim', 'A map from team id to the permissions the user holds on that team. It is what lets control-api check a permission against the team that owns the object.'],
+      ['jti', 'A unique id per token, used later for the denylist (I4).'],
+      ['Compact token', 'header.payload.signature, each base64url. Its length is what counts against a header limit.']
+    ],
+    tryIt: [
+      'Pick "No grants": 604 characters already, mostly the signature and the fixed claims.',
+      'Walk from "1 team, VIEWER" to "10 teams, ADMIN": the size grows with both the number of teams and the permissions in each.',
+      'Pick "20 teams, ADMIN": 5578 characters, over every bar, and the issuer refuses it: the cap is 10.'
+    ],
+    breakIt: 'Remove the aud claim from the issuer. Nothing fails to compile and the token still looks right, but common-security\'s decoder refuses it ("The aud claim is not valid"). Measured on a scratch copy on 2026-10-06: 4 of the 6 AccessTokenContractTest tests errored.',
+    say: 'identity-service issues exactly the claim contract control-api validates, a permission list per team with the hierarchy already expanded, and I prove it by decoding the token with the verifier\'s own decoder; the token is about 600 characters before any grant and 3 KB at ten ADMIN teams, which is why one token carries at most ten grants.',
+    quiz: {
+      q: 'Why does the issuer refuse a user with 20 team grants instead of cutting the list to 10?',
+      options: [
+        'Cutting is faster to implement',
+        'A cut list would silently remove permissions, so the user would be refused where they should be allowed, with no error to show for it',
+        'JWT forbids more than 10 claims',
+        'The signature gets invalid above 10 entries'
+      ],
+      answer: 1,
+      why: 'A silent truncation hides permissions. The refusal is loud, and the real fix is to refuse the membership that would exceed the cap when it is created (I6).'
+    },
+    mount(el) {
+      const CASES = [
+        { id: 'none', label: 'No grants', chars: 604, teams: 0 },
+        { id: 'v1', label: '1 team, VIEWER', chars: 722, teams: 1 },
+        { id: 'd1', label: '1 team, DEPLOYER', chars: 776, teams: 1 },
+        { id: 'a1', label: '1 team, ADMIN', chars: 866, teams: 1 },
+        { id: 'd5', label: '5 teams, DEPLOYER', chars: 1411, teams: 5 },
+        { id: 'a10', label: '10 teams, ADMIN (the cap)', chars: 3098, teams: 10 },
+        { id: 'a20', label: '20 teams, ADMIN', chars: 5578, teams: 20 }
+      ];
+      const CAP = 10;
+      const fmt = v => String(v);
+      const verdict = ui.verdict();
+      const rChars = ui.readout('Token characters');
+      const rSpec = ui.readout('Under the spec\'s 1 KB');
+      const rFour = ui.readout('Under 4 KB');
+      const rEight = ui.readout('Under 8 KB (Tomcat default)');
+      const rIssued = ui.readout('Issued');
+      const which = ui.choice('Grants', CASES.map(c => ({ value: c.id, label: c.label })), 'v1', render);
+
+      function render() {
+        const c = CASES.filter(x => x.id === which.get())[0];
+        const refused = c.teams > CAP;
+        rChars.set(fmt(c.chars), c.chars > 4096 ? 'bad' : null);
+        rSpec.set(c.chars < 1024 ? 'yes' : 'no', c.chars < 1024 ? 'ok' : 'busy');
+        rFour.set(c.chars < 4096 ? 'yes' : 'no', c.chars < 4096 ? 'ok' : 'bad');
+        rEight.set(c.chars < 8192 ? 'yes' : 'no', c.chars < 8192 ? 'ok' : 'bad');
+        rIssued.set(refused ? 'no, over the cap' : 'yes', refused ? 'bad' : 'ok');
+        if (refused) verdict.set('bad', 'The issuer refuses more than ' + CAP + ' grants (IllegalStateException; the membership itself is refused in I6). Measured size before the cap existed: ' + fmt(c.chars) + ' characters.');
+        else verdict.set('ok', fmt(c.chars) + ' characters, measured by TokenSizeTest on 2026-10-06. ' + (c.chars < 1024 ? 'Under 1 KB.' : 'Over the spec\'s "about 1 KB", under 4 KB.'));
+      }
+
+      el.append(
+        h('div', { class: 'sim-controls' }, which.el),
+        h('div', { class: 'sim-stage' }, h('div', { class: 'stack' })),
+        h('div', { class: 'readouts' }, [rChars, rSpec, rFour, rEight, rIssued].map(r => r.el)),
+        note('Every size is a measurement of the real issuer (RS256, 2048-bit key, UUID team ids, the seeded permissions); nothing is interpolated between the cases. The 4 KB and 8 KB lines are common header limits, quoted as reference points and not measured here.'),
+        verdict.el
+      );
+      render();
+    }
+  });
+
+  AF.register({
+    id: 'sec-refresh-rotation',
+    group: 'security',
+    order: 8,
+    title: 'Refresh rotation: one use per token, and reuse means theft',
+    question: 'How does a short-lived access token stay usable for days, and what happens when someone replays an old refresh token?',
+    status: 'built',
+    slice: 'I3',
+    where: [
+      'identity-service/src/main/java/io/appfleet/identity/token/RefreshTokenService.java (rotate)',
+      'identity-service/src/main/java/io/appfleet/identity/token/RefreshToken.java and RefreshTokenRepository.java',
+      'identity-service/src/main/resources/db/migration/V3__add_refresh_token.sql (uq_refresh_token_one_active_per_family)',
+      'identity-service/src/test/java/io/appfleet/identity/RefreshTest.java',
+      'docs/design/identity-service/identity-i3-refresh-rotation.md (decisions 5 to 9, section 8)'
+    ],
+    idea: [
+      'A refresh token is a random 256-bit string, kept in the database only as its SHA-256. A login starts a family; every use of the newest token marks it USED and creates its ACTIVE child, so a family is a chain with exactly one live link (a partial unique index lets the database refuse a second one). If a token that is already USED is presented, two parties hold it, and identity cannot tell which is the owner: it revokes every live link of the family, so the owner and the thief both have to log in again. Reuse is therefore a theft signal, and the cost is that a client that retries a refresh by accident is logged out (no grace window in I3).',
+      'Four details were found by running it. First, the refusal must be a return value: when the reuse path threw inside the transaction, the revocation rolled back with it, and the replay answered 401 while changing nothing (mutation, 2 of 2 tests red). Second, two requests with the same token are serialised by a row lock; with six parallel requests the result is one 200 and five 401. Without the lock the unique index still prevented a double win, but the five losers got a 500 (measured: [500, 500, 500, 200, 500, 500]). Third, Hibernate writes inserts before updates, so the first version inserted the child while the parent was still ACTIVE, and the index refused it: every refresh answered 500 until one flush() was added. Fourth, a login in a read-only transaction answered 200 with a token that was never saved.',
+      'The spec\'s broken version, a refresh that does not use the token up, was reproduced twice: with the unique index left in, every refresh failed with a 500, because the child could not be inserted next to a live parent; with the index removed as well, the replay answered 200 and the family forked. Measured on a scratch copy on 2026-10-06; the real tree later passed 88 tests, and a replay by hand answered 401, killed the newest token, and logged "refresh token reuse ... 1 active link(s) revoked".'
+    ],
+    terms: [
+      ['Family', 'The chain of refresh tokens that starts at one login. Two logins are two families, so one device\'s theft does not log out another.'],
+      ['Rotation', 'Using a refresh token marks it USED and issues a new one. Every token works once.'],
+      ['Reuse detection', 'Presenting a USED token. It revokes the whole family, because the server cannot tell the owner from a thief.'],
+      ['Absolute lifetime', 'The family dies 30 days after its login, however often it rotates, so a stolen session cannot be kept alive for ever.']
+    ],
+    tryIt: [
+      'Press "Owner refreshes" three times: a chain of links, one ACTIVE, the rest USED.',
+      'Then press "Thief replays the first token": with reuse detection on, the answer is 401 and every live link is revoked. Press "Owner refreshes": 401 too.',
+      'Switch "Reuse detection" off and replay again: the answer is 200 and the family now has two live links. This is the broken version from the spec.'
+    ],
+    breakIt: 'Make rotate() throw instead of return when a used token is presented. The answer is still 401, but the revocation rolls back with the transaction and the family stays alive. Measured on a scratch copy on 2026-10-06: replayOfAUsedToken_is401_andRevokesTheWholeFamily and replayOfAnOlderLink_revokesTheFamilyThroughTheLatestOne both failed.',
+    say: 'Refresh tokens are one-time and chained by family; presenting one that was already used revokes the whole family, because I cannot tell the owner from a thief, and I made the refusal a return value so the revocation commits, with a row lock for concurrent use and a partial unique index so a family can never hold two live tokens.',
+    quiz: {
+      q: 'The reuse path in rotate() revokes the family and then throws an exception to produce the 401. What does the database contain afterwards?',
+      options: [
+        'The family is revoked, because the update ran before the exception',
+        'The family is untouched, because the exception rolled the transaction back',
+        'The family is revoked and the user is deactivated',
+        'Only the newest link is revoked'
+      ],
+      answer: 1,
+      why: 'A RuntimeException rolls the surrounding transaction back, the revocation with it. Measured on 2026-10-06: the family kept an ACTIVE link and two tests failed. The fix is to return the refusal and let the controller throw after the commit.'
+    },
+    mount(el) {
+      const plural = (n, one) => n + ' ' + (n === 1 ? one : one + 's');
+      let links, last;
+      const box = h('div', { class: 'stack' });
+      const verdict = ui.verdict();
+      const rLinks = ui.readout('Links in the family');
+      const rActive = ui.readout('Live (ACTIVE) links');
+      const rAnswer = ui.readout('Last answer');
+      const detect = ui.toggle('Reuse detection', true, render, { tone: 'danger' });
+
+      function reset() { links = [{ n: 1, status: 'ACTIVE' }]; last = { code: '', text: 'Login: the first link is ACTIVE.', tone: 'busy' }; render(); }
+      const active = () => links.filter(l => l.status === 'ACTIVE');
+
+      function ownerRefreshes() {
+        const live = active();
+        if (!live.length) { last = { code: '401', text: 'The family is revoked: the owner has to log in again.', tone: 'bad' }; render(); return; }
+        live.forEach(l => { l.status = 'USED'; });
+        links.push({ n: links.length + 1, status: 'ACTIVE' });
+        last = { code: '200', text: 'Link ' + (links.length - 1) + ' used up, link ' + links.length + ' issued.', tone: 'ok' };
+        render();
+      }
+
+      function thiefReplays() {
+        const used = links.filter(l => l.status === 'USED');
+        if (!used.length) { last = { code: '', text: 'No used token to replay yet: press "Owner refreshes" first.', tone: 'busy' }; render(); return; }
+        if (detect.get()) {
+          const cut = active();
+          cut.forEach(l => { l.status = 'REVOKED'; });
+          last = { code: '401', text: 'Link 1 was already used: ' + plural(cut.length, 'live link') + ' revoked. Owner and thief are both out.', tone: 'bad' };
+        } else {
+          links.push({ n: links.length + 1, status: 'ACTIVE' });
+          last = { code: '200', text: 'Link 1 was never consumed, so the replay worked: the family now has ' + plural(active().length, 'live link') + '.', tone: 'bad' };
+        }
+        render();
+      }
+
+      function render() {
+        AF.clear(box);
+        links.forEach(l => box.append(ui.token('link ' + l.n + ' ' + l.status, l.status === 'ACTIVE' ? 'ok' : l.status === 'USED' ? 'idle' : 'bad')));
+        rLinks.set(links.length);
+        rActive.set(active().length, active().length > 1 ? 'bad' : active().length === 0 ? 'busy' : 'ok');
+        rAnswer.set(last.code || '-', last.tone === 'bad' ? 'bad' : last.tone === 'ok' ? 'ok' : null);
+        const evidence = detect.get()
+          ? ' Measured on 2026-10-06: RefreshTest replay tests green, and a replay by hand answered 401 with the family revoked.'
+          : ' This is the broken version from the spec; measured on a scratch copy: the replay answered 200 and the family forked.';
+        verdict.set(last.tone, last.text + evidence);
+      }
+
+      el.append(
+        h('div', { class: 'sim-controls' }, ui.button('Owner refreshes', ownerRefreshes), ui.button('Thief replays the first token', thiefReplays), detect.el, ui.button('Reset', reset, { variant: 'quiet' })),
+        h('div', { class: 'sim-stage' }, h('div', { class: 'sim-cols' }, ui.panel('The family, oldest to newest', box))),
+        h('div', { class: 'readouts' }, [rLinks, rActive, rAnswer].map(r => r.el)),
+        note('Illustrative model of one family. The statuses and the answers are the real ones; the 30-day lifetime, the row lock and the database index are described in the lesson text and are not simulated.'),
+        verdict.el
+      );
+      reset();
+    }
+  });
+
+  AF.register({
+    id: 'sec-denylist',
+    group: 'security',
+    order: 9,
+    title: 'Logout and the denylist: closing the window',
+    question: 'After a user logs out, why does their access token still work at a service, and what does it cost to make it stop?',
+    status: 'built',
+    slice: 'I4',
+    where: [
+      'common-security/src/main/java/io/appfleet/security/RedisJwtDenylist.java, JwtDenylistValidator.java, JwtSecurityAutoConfiguration.java',
+      'identity-service/src/main/java/io/appfleet/identity/token/SessionRevocationService.java',
+      'identity-service/src/test/java/io/appfleet/identity/LogoutTest.java and StaleTokenTest.java',
+      'docs/design/identity-service/identity-i4-logout-and-revocation.md (decisions 3 to 8, section 9)'
+    ],
+    idea: [
+      'An access token is checked by signature and date, and nothing else, so a logout cannot reach a token that is already out: it keeps working until it expires, 15 minutes in Appfleet. Logout therefore does two things. It revokes the session\'s refresh family in the database, so no new access token can be minted, and it puts every access token the session still has in the air on a Redis denylist by jti. A service that opted in to the denylist checks the jti on every request; one that did not is unaffected. Measured by hand on 2026-10-07 against the real apps: with the denylist off in control-api, the logged-out token still answered 200 and its Redis key had 959 seconds left; with the denylist on, the same token answered 401 with error="invalid_token", and a new login answered 200.',
+      'Four details were found by running it. The key must live until exp plus the clock skew, not exp: the decoder accepts a token up to 60 seconds after its exp, so a key that ended at exp would let a revoked token through for that last minute (mutation: red in both modules). Logout finds the access tokens through the refresh links, each of which now remembers the jti it issued (migration V4). The database change and the Redis write are one transaction, so when Redis fails the whole logout fails and can be retried (mutation: a swallowed Redis error was red). And with the denylist on, a token without a jti is refused, because it could never be revoked.',
+      'What it costs, measured on this machine (Redis in a Docker Desktop container, so probably slower than a real network of the same machine): one denylist lookup took 600 to 643 microseconds, against 32 to 37 for the signature check. Redis becomes a dependency of every request of a service that turns the denylist on, and the failure setting decides what an outage means: fail-closed (the default) refuses every token, fail-open accepts revoked tokens again. The base remains the 15-minute lifetime plus refresh rotation; the denylist is for the services where "this person must be locked out now" matters more than the extra dependency.'
+    ],
+    terms: [
+      ['Window', 'The time between a logout (or a role change) and the moment the access token it concerned expires. Without a denylist it is up to 15 minutes.'],
+      ['Denylist', 'Redis keys, one per revoked token, living exp plus the clock skew. A service checks it by jti only if it opted in.'],
+      ['Fail-closed / fail-open', 'What a verifier does when it cannot read the denylist: refuse the token (closed, the default) or accept it and log (open).'],
+      ['Clock skew', 'The 60 seconds after exp during which the decoder still accepts a token. The denylist key has to outlive it.']
+    ],
+    tryIt: [
+      'Press "Log out", then "Use the old access token": with the denylist off in the verifier the answer is 200, the window.',
+      'Switch "Denylist in the verifier" on and try again: 401.',
+      'Switch Redis off while the denylist is on: the answer is 401 when fail-closed and 200 when fail-open, a revoked token working again.'
+    ],
+    breakIt: 'Make the denylist key live until exp only. Everything still looks right, and a revoked token is accepted for the last 60 seconds of its life. Measured on a scratch copy on 2026-10-07: 2 tests red in common-security and 2 in identity-service.',
+    say: 'Logout revokes the refresh family and denylists the session\'s unexpired access tokens by jti in Redis, with a key that lives until exp plus the clock skew; the check is opt-in per service, costs about 600 microseconds against 35 for the signature on my machine, and the default is to fail closed, so the 15-minute lifetime stays the base and the denylist is for where immediate lock-out matters.',
+    quiz: {
+      q: 'The denylist key for a token that expires in 600 seconds is created with a lifetime of exactly 600 seconds. What goes wrong?',
+      options: [
+        'Nothing: after exp the token is useless anyway',
+        'For the 60 seconds of clock skew after exp the decoder still accepts the token, but the key is gone, so a revoked token works again',
+        'Redis refuses a key with that lifetime',
+        'The key lives 600 seconds longer than needed'
+      ],
+      answer: 1,
+      why: 'JwtTimestampValidator accepts a token up to the skew (60 s) after its exp. The key has to cover exp plus the skew; the mutation that dropped the skew turned four tests red.'
+    },
+    mount(el) {
+      let loggedOut, answer;
+      const verdict = ui.verdict();
+      const rWindow = ui.readout('State');
+      const rAnswer = ui.readout('Answer at the service');
+      const rCost = ui.readout('Lookup vs signature check');
+      const deny = ui.toggle('Denylist in the verifier', false, render, { tone: 'danger' });
+      const redis = ui.toggle('Redis reachable', true, render);
+      const open = ui.toggle('Fail open', false, render);
+
+      function reset() { loggedOut = false; answer = null; render(); }
+      function outcome() {
+        if (!loggedOut) return { code: '200', tone: 'ok', text: 'The token is valid: signature and date are fine, and the session is alive.' };
+        if (!deny.get()) return { code: '200', tone: 'bad', text: 'The window: the session is over, but this service never asks, so the token works until it expires (959 s were left in the by-hand run). Measured: 200.' };
+        if (redis.get()) return { code: '401', tone: 'ok', text: 'The jti is on the denylist: invalid_token. Measured against control-api with the denylist on: 401, and a new login 200.' };
+        return open.get()
+          ? { code: '200', tone: 'bad', text: 'Redis cannot be read and the verifier fails open: the revoked token is accepted again. Covered by JwtDenylistValidatorTest.' }
+          : { code: '401', tone: 'busy', text: 'Redis cannot be read and the verifier fails closed (the default): every token is refused, revoked or not. Covered by JwtDenylistValidatorTest.' };
+      }
+      function render() {
+        const o = outcome();
+        rWindow.set(loggedOut ? 'logged out' : 'signed in', loggedOut ? 'busy' : 'ok');
+        rAnswer.set(answer ? answer.code : '-', answer && answer.tone === 'bad' ? 'bad' : null);
+        rCost.set(deny.get() ? '~600 us vs ~35 us' : 'no lookup');
+        verdict.set(answer ? answer.tone : o.tone, answer ? answer.text : (loggedOut ? 'Logged out. Now press "Use the old access token".' : o.text));
+      }
+      el.append(
+        h('div', { class: 'sim-controls' },
+          ui.button('Log out', () => { loggedOut = true; answer = null; render(); }),
+          ui.button('Use the old access token', () => { answer = outcome(); render(); }),
+          deny.el, redis.el, open.el,
+          ui.button('Reset', reset, { variant: 'quiet' })),
+        h('div', { class: 'sim-stage' }, h('div', { class: 'stack' })),
+        h('div', { class: 'readouts' }, [rWindow, rAnswer, rCost].map(r => r.el)),
+        note('Illustrative model of the verifier\'s decision. The 200 and 401 answers and the 959 s are measured against the real apps (2026-10-07); fail-open and fail-closed are covered by tests, not run against a stopped Redis. The costs are one machine\'s numbers.'),
+        verdict.el
+      );
+      reset();
+    }
+  });
+
+  AF.register({
+    id: 'sec-lockout',
+    group: 'security',
+    order: 10,
+    title: 'Same time, same answer: uniform sign-in failure, lockout and the audit',
+    question: 'How does a sign-in hide which emails have an account, stop repeated guessing, and still leave a record that cannot be erased?',
+    status: 'built',
+    slice: 'I5',
+    where: [
+      'identity-service/src/main/java/io/appfleet/identity/auth/CredentialChecker.java and AuthService.java (login)',
+      'identity-service/src/main/java/io/appfleet/identity/auth/LockoutService.java',
+      'identity-service/src/main/java/io/appfleet/identity/audit/LoginAuditService.java and db/migration/V5__add_login_audit.sql',
+      'identity-service/src/test/java/io/appfleet/identity/LoginTimingTest.java, LockoutTest.java, LoginAuditTest.java',
+      'docs/design/identity-service/identity-i5-lockout-and-audit.md'
+    ],
+    idea: [
+      'The 401 body was already the same for an unknown email, a wrong password and a deactivated user, and the clock still gave the difference away. Measured at the production BCrypt cost 12, median of 7: a wrong password took 174 ms, an unknown email 4 ms, a deactivated user 4 ms (ratio 0.02), because the condition user == null || status != ACTIVE || !matches(...) stops before BCrypt. The fix is to run exactly one BCrypt check on every attempt, against a dummy hash made at start-up with the configured cost when the email is unknown, and to judge the account status only afterwards. After the fix: 176, 187 and 180 ms (ratios 1.06 and 1.02).',
+      'The lockout counts failed attempts per email, whether or not an account exists. That is the part that matters: if only real accounts were counted, the 423 itself would say "this email exists". Five wrong sign-ins within 15 minutes lock the email, also against the right password, with Retry-After set to the rest of the window; an unknown email gets the same sequence of 401, 401, 401, 401, 401, 423 and the same 423 body. The Redis key is the SHA-256 of the email (no address in Redis), created with its lifetime first (SET NX EX) and then incremented. With INCR and EXPIRE the window is fixed, not sliding: a later failure does not extend it (mutation: sliding made the test red). If Redis is down the sign-in answers 503 and is not let through.',
+      'Every attempt, refused ones included, writes a row in login_audit in its own transaction (REQUIRES_NEW), because a refused sign-in rolls its own transaction back and the row that records the refusal must not go with it (mutation: joining the transaction made 5 tests red). The row says what the caller must not learn (UNKNOWN_USER, DEACTIVATED), never holds a password, records the TCP peer and not X-Forwarded-For (a client can write anything there), and the database refuses UPDATE, DELETE and TRUNCATE. All 14 mutation checks of this step were red on a scratch copy. In the real tree the suite caught a missing piece: the refresh-token reuse audit row was never written (LoginAuditTest.aRefreshTokenReuse_isAudited_withTheUser, expected 1 row, got 0), because Rejected carried no user id; it went green (153 tests) after the fix. By hand on the running jar (2026-10-07): a real and an unknown email both went 401 five times, then 423 with Retry-After 899 and the same body apart from the correlation id; the 14 audit rows differ only in outcome (BAD_CREDENTIALS against UNKNOWN_USER) and user_id.'
+    ],
+    terms: [
+      ['Constant-time check', 'Doing the same work whatever the input, so the time says nothing. Here: one BCrypt run on every attempt, against a dummy hash for an unknown email.'],
+      ['User enumeration', 'Learning which emails have an account from any difference in the answer: the body, the status, or the time.'],
+      ['Fixed window', 'A counter that starts at the first failure and ends one window later, whatever happens in between. A sliding window would move with each failure.'],
+      ['REQUIRES_NEW', 'A transaction that commits on its own, so the audit row survives the rollback of the sign-in around it.']
+    ],
+    tryIt: [
+      'Pick "Unknown email" with the dummy hash switched off: 4 ms against 174 ms for a wrong password. Switch it on: 187 ms.',
+      'Press "Wrong password" six times for a "Known account", then for an "Unknown email": the same 423 at the sixth attempt, for both.',
+      'Press "Right password" while locked: still 423.'
+    ],
+    breakIt: 'Count failures only for real accounts. Nothing looks wrong, but an unknown email never locks, so the sixth attempt answers 401 for it and 423 for a real account: the 423 now tells an attacker which emails exist. Measured on a scratch copy on 2026-10-07: anUnknownEmail_isLockedExactlyLikeARealOne went red.',
+    say: 'I run one BCrypt check on every attempt, against a dummy hash when the email is unknown, and judge the account status afterwards; I count failures per email, not per account, so an unknown email locks exactly like a real one; and I write the audit in its own transaction so the rows of refused attempts survive the rollback, and let the database refuse any change to them.',
+    quiz: {
+      q: 'Why does the lockout count failures per email even when no account has that email?',
+      options: [
+        'To save a database lookup',
+        'Because otherwise only real accounts would ever reach 423, and the 423 itself would reveal which emails exist',
+        'Because Redis cannot store a user id',
+        'To make the lock last longer for unknown emails'
+      ],
+      answer: 1,
+      why: 'Measured by test: an unknown email goes 401 five times, then 423 with the same body as a real account. If unknown emails were not counted, the sixth attempt would stay 401 for them and the difference would be the leak.'
+    },
+    mount(el) {
+      const MS = { known: 174, unknown: 4, deactivated: 4 };       // measured at cost 12 before the fix
+      const FIXED = { known: 176, unknown: 187, deactivated: 180 };  // measured after the fix
+      let attempts, locked, last;
+      const verdict = ui.verdict();
+      const rTime = ui.readout('Time of the last attempt');
+      const rCount = ui.readout('Failures counted');
+      const rState = ui.readout('Answer');
+      const kind = ui.choice('Email', [
+        { value: 'known', label: 'Known account' },
+        { value: 'unknown', label: 'Unknown email' },
+        { value: 'deactivated', label: 'Deactivated account' }
+      ], 'known', reset);
+      const dummy = ui.toggle('Dummy hash for unknown and deactivated', true, reset, { tone: 'danger' });
+
+      function reset() { attempts = 0; locked = false; last = null; render(); }
+      function ms() { return dummy.get() ? FIXED[kind.get()] : MS[kind.get()]; }
+      function attempt(right) {
+        if (locked) { last = { code: '423', ms: 1, text: 'Locked: refused before any hashing, also with the right password. Retry-After counts the rest of the 15-minute window.' }; render(); return; }
+        const ok = right && kind.get() === 'known';
+        if (ok) { attempts = 0; last = { code: '200', ms: ms(), text: 'Signed in: the counter is cleared and an audit row SUCCESS is written.' }; }
+        else {
+          attempts += 1;
+          const why = kind.get() === 'unknown' ? 'UNKNOWN_USER' : kind.get() === 'deactivated' ? 'DEACTIVATED' : 'BAD_CREDENTIALS';
+          if (attempts >= 5) locked = true;
+          last = { code: '401', ms: ms(), text: 'The same 401 body for every kind of email. The audit row says ' + why + '; the caller never sees that.' };
+        }
+        render();
+      }
+      function render() {
+        rTime.set(last ? last.ms + ' ms' : '-', last && last.ms < 20 && last.code === '401' ? 'bad' : null);
+        rCount.set(attempts + ' of 5');
+        rState.set(last ? last.code : '-', last && last.code === '423' ? 'busy' : null);
+        const leak = last && last.code === '401' && last.ms < 20;
+        verdict.set(leak ? 'bad' : (last ? (last.code === '423' ? 'busy' : 'ok') : 'busy'),
+          last ? last.text + (leak ? ' But it took ' + last.ms + ' ms against about 175 ms for a real account: the clock says this email has no account. Measured at cost 12.' : '')
+               : 'Press an attempt. Times are measured at BCrypt cost 12 on the user\'s machine: before the fix 174 / 4 / 4 ms, after 176 / 187 / 180 ms.');
+      }
+      el.append(
+        h('div', { class: 'sim-controls' }, kind.el, dummy.el,
+          ui.button('Wrong password', () => attempt(false)), ui.button('Right password', () => attempt(true)),
+          ui.button('Reset', reset, { variant: 'quiet' })),
+        h('div', { class: 'sim-stage' }, h('div', { class: 'stack' })),
+        h('div', { class: 'readouts' }, [rTime, rCount, rState].map(r => r.el)),
+        note('Illustrative model of the sign-in decision. The three times are measured (LoginTimingTest, median of 7, cost 12, before and after the fix); the 423 after five failures, also for an unknown email, is measured by LockoutTest.'),
+        verdict.el
+      );
+      reset();
+    }
+  });
+
+  AF.register({
+    id: 'sec-method-security',
+    group: 'security',
+    order: 11,
+    title: 'The annotation that does nothing: method security, the proxy trap and self-service',
+    question: 'You wrote @PreAuthorize on a method. How can you be sure it is enforced, and when does it silently do nothing?',
+    status: 'built',
+    slice: 'I6a',
+    where: [
+      'identity-service/src/main/java/io/appfleet/identity/config/SecurityConfig.java (@EnableMethodSecurity, the resource-server chain)',
+      'identity-service/src/main/java/io/appfleet/identity/web/ApiExceptionHandler.java (the rethrow of AccessDeniedException)',
+      'identity-service/src/main/java/io/appfleet/identity/user/UserController.java, UserService.java and auth/PasswordPolicy.java',
+      'identity-service/src/test/java/io/appfleet/identity/MethodSecurityMechanicsTest.java, MethodSecurityHttpTest.java, EveryEndpointIsAnnotatedTest.java, SelfServiceTest.java',
+      'docs/design/identity-service/identity-i6a-method-security-and-self-service.md'
+    ],
+    idea: [
+      'An annotation is only a note. @PreAuthorize("hasAuthority(...)") is enforced by a proxy that Spring wraps around the bean, and that proxy exists only when @EnableMethodSecurity is on. Without it the annotation compiles, reads well in review, and does nothing: the handler answers 200. The test that proves it is not a unit test of the annotation but a request: a signed-in user without the permission calls a test-only endpoint and must get 403. Red run on the real tree: expected 403 but was 200. With the annotation on, the same test is green.',
+      'The second trap is the same one as @Transactional, and here it is a security hole. The proxy only sees calls that come from outside the bean. A method that calls its own @PreAuthorize method (this.secret()) skips the proxy, so the check never runs. Three tests keep it honest: one passes and asserts the leak (the hole), one is @Disabled and says what one would wish were true, and one passes and shows the fix, which is to put the guarded method in another bean so the call crosses the proxy.',
+      'Two smaller traps came with it. A @RestControllerAdvice that ends in @ExceptionHandler(Exception.class) catches the AccessDeniedException that method security throws from inside the handler, and answers 500 for every 403; a handler that rethrows AccessDeniedException and AuthenticationException sends them on to the filter chain. And an endpoint that has no @PreAuthorize is authenticated (the chain says /api/**) but authorised by nothing, so EveryEndpointIsAnnotatedTest scans the handler mappings and fails the build for one.',
+      'Self-service is where this meets the user. The caller is always the token subject, never a field of the request. A password change checks the current password first, counts a wrong one on the same lockout counter as the sign-in (a stolen 15-minute token must not be a free guessing oracle), and on success ends every session, the one in use included, so the old tokens die with the old password. Eight mutation checks were red on a scratch copy; the suite is 173 tests, 1 skipped on purpose.'
+    ],
+    terms: [
+      ['@EnableMethodSecurity', 'The switch that makes Spring wrap beans in a proxy that evaluates @PreAuthorize. Without it the annotations are inert.'],
+      ['Proxy trap', 'Advice such as security or a transaction runs in a proxy around the bean. A call from inside the bean (this.method()) does not pass through it, so the advice is skipped.'],
+      ['Meta-test', 'A test that checks the checking: here, that a protected endpoint really answers 403, and that every endpoint has an annotation.'],
+      ['Guessing oracle', 'Any endpoint that tells you whether a secret was right. Without a lockout, a stolen token turns the change-password endpoint into one.']
+    ],
+    tryIt: [
+      'Switch "Method security" off and press the call: LEAKED, with the annotation sitting right there. Switch it on: REFUSED (403).',
+      'With it on, change the call to "From inside its own class": LEAKED again. That is the proxy trap.',
+      'Change it to "From another bean": REFUSED. That is the fix.'
+    ],
+    breakIt: 'Remove @EnableMethodSecurity from SecurityConfig. Everything compiles, and in the 15-test run of the new classes only the meta-test fails, with expected 403 but was 200. Then remove one @PreAuthorize from a handler: EveryEndpointIsAnnotatedTest fails and names it. Measured on a scratch copy on 2026-10-07 (mutations B1 and B3).',
+    say: 'I enable method security explicitly and prove it with a request that must answer 403, not with the annotation; I know a @PreAuthorize method called from inside its own class is skipped because the call bypasses the proxy, so I keep guarded methods in another bean; a test fails the build for any endpoint without an annotation; and a password change shares the sign-in lockout counter and ends every session.',
+    quiz: {
+      q: 'A service has a public method entry() that calls its own method secret(), annotated @PreAuthorize("hasAuthority(\'admin\')"). A user without that authority calls entry(). What happens, with @EnableMethodSecurity on?',
+      options: [
+        'AccessDeniedException, because secret() is annotated',
+        'secret() runs: the call from entry() does not go through the proxy, so the annotation is skipped',
+        'It depends on whether the method is public or private',
+        'Spring fails at start-up and warns about the self-call'
+      ],
+      answer: 1,
+      why: 'Measured by test: MethodSecurityMechanicsTest.aSelfInvokedMethod_isNotProtected_thisIsTheHole passes by asserting the leak. The fix, a guarded method in another bean, is anExtractedCollaborator_isProtected.'
+    },
+    mount(el) {
+      let last = null;
+      const verdict = ui.verdict();
+      const rEnable = ui.readout('Proxy around the bean');
+      const rResult = ui.readout('Answer');
+      const enabled = ui.toggle('Method security (@EnableMethodSecurity)', true, reset, { tone: 'danger' });
+      const path = ui.choice('Who calls the guarded method', [
+        { value: 'controller', label: 'The controller (through the proxy)' },
+        { value: 'self', label: 'The same class (this.secret())' },
+        { value: 'other', label: 'Another bean' }
+      ], 'controller', reset);
+
+      function reset() { last = null; render(); }
+      function call() {
+        const on = enabled.get();
+        const p = path.get();
+        if (!on) last = { leaked: true, text: 'LEAKED: @EnableMethodSecurity is off, so no proxy was built and the annotation was never read. The handler answered 200.' };
+        else if (p === 'self') last = { leaked: true, text: 'LEAKED: the call came from inside the class, so it never crossed the proxy. The annotation is present and skipped.' };
+        else last = { leaked: false, text: 'REFUSED (403): the call crossed the proxy, the authority was missing, AccessDeniedException became a 403 in the problem shape.' };
+        render();
+      }
+      function render() {
+        const on = enabled.get();
+        rEnable.set(on ? 'yes' : 'no', on ? null : 'bad');
+        rResult.set(last ? (last.leaked ? '200 (leak)' : '403') : '-', last && last.leaked ? 'bad' : null);
+        verdict.set(last ? (last.leaked ? 'bad' : 'ok') : 'busy',
+          last ? last.text : 'A signed-in user WITHOUT the permission calls secret(), which is annotated @PreAuthorize("hasAuthority(\'nobody:has\')"). Press the call.');
+      }
+      el.append(
+        h('div', { class: 'sim-controls' }, enabled.el, path.el,
+          ui.button('Call secret() without the permission', call), ui.button('Reset', reset, { variant: 'quiet' })),
+        h('div', { class: 'sim-stage' }, h('div', { class: 'stack' })),
+        h('div', { class: 'readouts' }, [rEnable, rResult].map(r => r.el)),
+        note('Illustrative model of what the proxy does. The behaviours are measured by MethodSecurityMechanicsTest (plain Spring contexts) and MethodSecurityHttpTest (real HTTP): without the switch the call returns, a self-call is skipped, another bean is refused.'),
+        verdict.el
+      );
+      reset();
+    }
+  });
+
+  AF.register({
+    id: 'sec-platform-admin',
+    group: 'security',
+    order: 12,
+    title: 'Administrator of what? Scoped administration, and revocation you can prove',
+    question: 'The token says a user holds user:manage. How do you stop an administrator of one small team from administering everyone?',
+    status: 'built',
+    slice: 'I6b',
+    where: [
+      'identity-service/src/main/java/io/appfleet/identity/config/AccessGuard.java (the scoped checks) and team/PlatformTeam.java',
+      'identity-service/src/main/resources/db/migration/V6__add_platform_team.sql',
+      'identity-service/src/main/java/io/appfleet/identity/admin/ (TeamAdminService, UserAdminService, PlatformAdmins and the four controllers)',
+      'identity-service/src/test/java/io/appfleet/identity/AdminApiTest.java',
+      'docs/design/identity-service/identity-i6b-platform-and-team-administration.md'
+    ],
+    idea: [
+      'The access token keeps permissions per team: teams maps a team id to a list. The authority converter flattens all of it into one list, and the team id is gone. So hasAuthority("user:manage") does not mean "may administer"; it means "holds user:manage in some team". An administrator of a team of three people passes that test for the whole platform: list every user, deactivate anyone, read the login audit. The bug-first run proves it: with the naive guard exactly one test fails, a team administrator calling GET /users and getting 200 instead of 403. Every test that only tries an administrator and a plain user stays green.',
+      'The fix asks the question with the team in it. AccessGuard reads the teams claim of the token itself: platformAdmin is "holds user:manage in the platform team" (a team seeded by a migration with a fixed id, so there is nothing to look up), and teamAdmin(teamId) is "holds it in that team, or in the platform team". It is a separate bean, because a @PreAuthorize that called a method of its own class would be skipped (the proxy trap of I6a). A team administrator asking for another team gets 403 whether or not that team exists.',
+      'A role change, a removal and a deactivation end the sessions of that user, because their tokens still carry the old permissions. The trap is in proving it. After a deactivation the old token answers 401 anyway, because the service refuses a user who is not ACTIVE; a test that only checks the 401 stays green when the revocation is deleted. The test that bites counts the refresh rows (1 live before, 0 after). Same lesson as logout: do not prove a revocation with an answer something else also produces.',
+      'The first administrator cannot be made by an administrator, so one environment variable names an email address and a start-up runner grants that registered user the platform role; no password is ever configured. And a gap the tests did not see: after the bug-first experiment one controller kept the naive guard, and the suite stayed green at 196, because no test had a team administrator call it. Two assertions, GET /roles and GET /teams as a team administrator, closed it, and went red when the naive guard was put back.'
+    ],
+    terms: [
+      ['Flattened authorities', 'The converter turns teams: {id: [perms]} into one list of permission names. Scope is lost, so a check on the flat list cannot tell which team a permission was held in.'],
+      ['Platform team', 'A team with a fixed id seeded by a migration. Holding user:manage in it is what makes a platform administrator; the code compares the token with that one constant.'],
+      ['Wrong-scope caller', 'A test caller who has the right permission in the wrong place (an administrator of another team). The test every admin endpoint needs, because a plain user fails any guard.'],
+      ['Detached entity', 'An entity read before a bulk update that clears the persistence context. Its lazy fields fail afterwards, so the response is built before the revocation.']
+    ],
+    tryIt: [
+      'Choose "Naive hasAuthority" and the caller "Administrator of team A only", then press each endpoint: GET /users answers 200. That is the hole.',
+      'Switch to "Scoped guard": the same caller gets 200 only on the members of team A, and 403 on everything else, including team B.',
+      'Choose the platform administrator: 200 everywhere with the scoped guard.'
+    ],
+    breakIt: 'Put hasAuthority("user:manage") back on one controller. In this project the suite stayed green at 196 tests, because no test used a team administrator on that controller. Measured 2026-10-07: the leftover was spotted in the tree by eye, not by the suite; the two added assertions then went red at the GET /roles line on a scratch copy and green after the fix.',
+    say: 'I do not check a flat authority list for scoped permissions, because the converter loses the team: I read the teams claim and ask about one team, with a fixed platform team for the platform-wide actions; a role change, removal or deactivation ends the sessions of that user and I prove it by counting the refresh rows, not by the 401 that the user status gives anyway; and I test every admin endpoint with a caller who has the permission in the wrong team.',
+    quiz: {
+      q: 'A user is ADMIN of team A only. The endpoint GET /users is guarded by hasAuthority("user:manage"). What does the user get?',
+      options: [
+        '403, because GET /users is not about team A',
+        '200: the token\'s flat authority list contains user:manage, and the guard cannot see that it was granted in team A',
+        '401, because the token carries only a teams claim',
+        '200 only if team A is the platform team'
+      ],
+      answer: 1,
+      why: 'Measured: with the naive guard AdminApiTest.anAdminOfOneTeam_isNotAPlatformAdmin_... fails with expected 403 but was 200. The scoped guard reads the teams claim and asks about the platform team.'
+    },
+    mount(el) {
+      let last = null;
+      const verdict = ui.verdict();
+      const rGuard = ui.readout('Guard');
+      const rResult = ui.readout('Answer');
+      const guard = ui.choice('Guard on the endpoint', [
+        { value: 'naive', label: 'Naive hasAuthority("user:manage")' },
+        { value: 'scoped', label: 'Scoped @guard (teams claim)' }
+      ], 'naive', reset);
+      const who = ui.choice('Caller', [
+        { value: 'plain', label: 'Signed in, no admin role' },
+        { value: 'adminA', label: 'Administrator of team A only' },
+        { value: 'platform', label: 'Platform administrator' }
+      ], 'adminA', reset);
+      const ENDPOINTS = [
+        { id: 'users', label: 'GET /users', scope: 'platform' },
+        { id: 'roles', label: 'GET /roles', scope: 'platform' },
+        { id: 'membersA', label: 'GET /teams/A/members', scope: 'A' },
+        { id: 'membersB', label: 'GET /teams/B/members', scope: 'B' }
+      ];
+
+      function reset() { last = null; render(); }
+      function allowed(ep) {
+        const c = who.get();
+        const holdsAnywhere = c === 'adminA' || c === 'platform';
+        if (guard.get() === 'naive') return holdsAnywhere;
+        if (c === 'platform') return true;
+        if (c === 'adminA') return ep.scope === 'A';
+        return false;
+      }
+      function call(ep) {
+        const ok = allowed(ep);
+        const c = who.get();
+        const hole = ok && c === 'adminA' && ep.scope !== 'A';
+        last = {
+          code: ok ? '200' : '403', hole,
+          text: hole
+            ? 'LEAKED: ' + ep.label + ' answered 200 to an administrator of team A only. The flat authority list has user:manage and cannot say where it was granted.'
+            : ok ? ep.label + ' answered 200: the caller is allowed here.'
+                 : ep.label + ' answered 403: the guard asked about the right team and the caller does not hold it there.'
+        };
+        render();
+      }
+      function render() {
+        rGuard.set(guard.get() === 'naive' ? 'naive' : 'scoped', guard.get() === 'naive' ? 'bad' : null);
+        rResult.set(last ? last.code : '-', last && last.hole ? 'bad' : null);
+        verdict.set(last ? (last.hole ? 'bad' : 'ok') : 'busy',
+          last ? last.text : 'Pick a guard and a caller, then press an endpoint. Team A is the caller\'s own team; team B is another one.');
+      }
+      el.append(
+        h('div', { class: 'sim-controls' }, guard.el, who.el,
+          ...ENDPOINTS.map(ep => ui.button(ep.label, () => call(ep))), ui.button('Reset', reset, { variant: 'quiet' })),
+        h('div', { class: 'sim-stage' }, h('div', { class: 'stack' })),
+        h('div', { class: 'readouts' }, [rGuard, rResult].map(r => r.el)),
+        note('Illustrative model of the two guards. The behaviour is measured by AdminApiTest over real HTTP: with the naive guard a team administrator gets 200 on GET /users (the one failing test); with AccessGuard the same call is 403, and the members of another team are 403 too.'),
+        verdict.el
+      );
+      reset();
+    }
+  });
+
+  AF.register({
+    id: 'sec-service-accounts',
+    group: 'security',
+    order: 13,
+    title: 'Machines get keys, not passwords: service accounts and the key-for-token exchange',
+    question: 'How does a service authenticate to another service, without a shared secret in a config file and without a second way to validate requests?',
+    status: 'built',
+    slice: 'I7',
+    where: [
+      'identity-service/src/main/java/io/appfleet/identity/serviceaccount/ (ApiKeyGenerator, ServiceAccountService, ServiceTokenService and the controllers)',
+      'identity-service/src/main/java/io/appfleet/identity/auth/AccessTokenIssuer.java (issueForService)',
+      'identity-service/src/main/resources/db/migration/V7__add_service_accounts.sql and V8__extend_login_audit_for_service_tokens.sql',
+      'identity-service/src/test/java/io/appfleet/identity/ServiceAccountTest.java, ApiKeyGeneratorTest.java, ServiceAccountConstraintTest.java',
+      'docs/design/identity-service/identity-i7-service-accounts-and-api-keys.md'
+    ],
+    idea: [
+      'A person has a password and a session; a machine has neither. Give it a service account: a principal that belongs to one team and holds one role there, so its scope is the role and nothing else. It gets API keys. A key is presented once, to one endpoint, and exchanged for the same kind of access token a user gets, only shorter (5 minutes, no refresh token). Every other service keeps validating only JWTs, so there is one validation path, and no secret travels past the exchange. The token uses the frozen claim contract: sub is the account id, teams holds its one grant, so control-api needs no change.',
+      'The key is afk_ plus an 11-character public prefix, a dot, and 256 random bits. The prefix names the row; only the SHA-256 of the whole key is stored, not BCrypt, because a key is not something a human chose and there is nothing to guess (same rule as the refresh tokens). A CHECK on the column makes a plain-text key impossible to insert. The bug-first run keeps the quiet version of the failure: store the key itself and compare plain with plain, and everything still works; exactly one test fails, the database read that looks for the secret. The key is shown once, in the creation and the extra-key responses only, and a lost key is replaced, not recovered.',
+      'The exchange is open and uniform. Unknown, wrong secret, malformed, revoked and disabled keys all answer the same 401 body as a wrong password, and the SHA-256 is computed before any lookup so the clock says nothing. Revoking a key or disabling an account does not kill tokens already issued, because their jti is not recorded: they run out within 5 minutes, which is why the life is short (the I4 argument again). Rotation without downtime is two active keys: add the new one, deploy it, revoke the old one. A third is refused.',
+      'Two rules keep machines in their place: a role that manages users is refused for a service account, so a key can never be used to administer people; and every endpoint finds the account WITH the team from the path, so an administrator of another team gets 404 for its keys. Twelve mutation checks were red, among them the account found by id alone, the revoke that skips the team, and the hash that is not compared.'
+    ],
+    terms: [
+      ['Service account', 'A machine principal: no password, no email, not a user. It belongs to one team and holds one role in it; its token carries exactly that grant.'],
+      ['API key prefix', 'The public, stored, unique half of a key. It finds the row; knowing it opens nothing. The secret half has 256 random bits.'],
+      ['Key-for-token exchange', 'A key goes to one open endpoint and comes back as a short access token. Other services never see a key.'],
+      ['Rotation overlap', 'Two active keys at once, so a new key can be deployed before the old one is revoked.']
+    ],
+    tryIt: [
+      'Press "Exchange the key" with a good key: 200 and a 5-minute token. Press "Revoke the old key" and exchange the old key again: 401.',
+      'Press "Wrong secret", "Unknown prefix" and "Malformed key": the three answers are the same 401, so the caller learns nothing.',
+      'Press "Add a key" three times: the third is refused, two active keys at most.'
+    ],
+    breakIt: 'Store the key in plain text and compare plain with plain. Every flow still works. Measured on 2026-10-07 on the real tree: exactly one of 13 tests failed, ServiceAccountTest.theKey_isShownOnce_andNothingOfItIsStoredButItsHash at line 99, expected the SHA-256 but was the key itself. Without the database CHECK it is the only thing that notices.',
+    say: 'A service account is a principal with one team and one role; its API key is shown once and stored only as a SHA-256, because it is 256 random bits; a service exchanges the key at one open endpoint for a short JWT, so every service validates only JWTs; all refusals are the same 401; rotation is two active keys; a role that manages users is refused for a machine; and every lookup carries the team from the path.',
+    quiz: {
+      q: 'Why is an API key stored with SHA-256 and not BCrypt?',
+      options: [
+        'BCrypt cannot hash a string of 59 characters',
+        'A key is 256 random bits, so there is nothing to guess; a slow hash would only slow every token request',
+        'SHA-256 is reversible, so the key can be shown again later',
+        'BCrypt is only allowed for passwords of users in the platform team'
+      ],
+      answer: 1,
+      why: 'BCrypt exists to slow down guessing of human-chosen passwords. A key made of 256 random bits cannot be guessed, so a fast hash is enough, and the exchange stays cheap. The same reasoning as the refresh tokens of I3.'
+    },
+    mount(el) {
+      const TTL = 300;
+      let keys, last;
+      const verdict = ui.verdict();
+      const rKeys = ui.readout('Active keys');
+      const rAnswer = ui.readout('Answer');
+      const rTtl = ui.readout('Token life');
+      const slot = ui.choice('Key to use', [
+        { value: 'old', label: 'The old key' },
+        { value: 'new', label: 'The new key' },
+        { value: 'newer', label: 'A later key' }
+      ], 'old', render);
+
+      function reset() { keys = { old: 'active', new: null, newer: null }; last = null; render(); }
+      function active() { return Object.values(keys).filter(s => s === 'active').length; }
+      function answer(code, tone, text) { last = { code, tone, text }; render(); }
+
+      function exchange() {
+        const k = keys[slot.get()];
+        if (k === 'active') answer('200', 'ok', 'A short access token (5 minutes), no refresh token. The key was hashed and compared; the audit says SUCCESS.');
+        else answer('401', 'ok', 'The same 401 body as a wrong password. The audit says INVALID_KEY (' + (k === 'revoked' ? 'the key was revoked' : 'there is no such key') + '); the caller sees none of it.');
+      }
+      function addKey() {
+        if (active() >= 2) return answer('409', 'busy', 'A third active key is refused: at most two, so rotation has an overlap and nothing more.');
+        if (keys.new === null) keys.new = 'active'; else keys.newer = 'active';   /* a revoked key never comes back: a new key takes a new slot */
+        answer('201', 'ok', 'A new key, shown once. Both keys work until one is revoked.');
+      }
+      function revoke() {
+        if (keys.old !== 'active') return answer('204', 'ok', 'Revoking again changes nothing.');
+        keys.old = 'revoked';
+        answer('204', 'ok', 'The old key is revoked. Tokens it already bought live out their 5 minutes: their jti is not recorded.');
+      }
+      function wrong(kind) {
+        answer('401', 'ok', kind + ': the same 401, the same body, and the SHA-256 was computed before any lookup, so even the time says nothing.');
+      }
+      function render() {
+        rKeys.set(String(active()) + ' of 2');
+        rAnswer.set(last ? last.code : '-', last && last.code === '409' ? 'busy' : null);
+        rTtl.set(TTL + ' s');
+        verdict.set(last ? last.tone : 'busy', last ? last.text : 'The account has one key (old). Press an action. A service needs only the exchange; an administrator rotates keys.');
+      }
+      el.append(
+        h('div', { class: 'sim-controls' }, slot.el,
+          ui.button('Exchange the key', exchange), ui.button('Add a key', addKey), ui.button('Revoke the old key', revoke),
+          ui.button('Wrong secret', () => wrong('Right prefix, wrong secret')), ui.button('Unknown prefix', () => wrong('A prefix that names no row')),
+          ui.button('Malformed key', () => wrong('Text that cannot be a key')), ui.button('Reset', reset, { variant: 'quiet' })),
+        h('div', { class: 'sim-stage' }, h('div', { class: 'stack' })),
+        h('div', { class: 'readouts' }, [rKeys, rAnswer, rTtl].map(r => r.el)),
+        note('Illustrative model of the rotation and the uniform refusal. The behaviour is measured by ServiceAccountTest over real HTTP and, by hand, on the real jar: a third key is 409, a revoked key is 401, and unknown, wrong-secret and malformed keys give one identical 401 body.'),
+        verdict.el
+      );
+      reset();
+    }
+  });
+
+
+  AF.register({
+    id: 'sec-jwks-rotation',
+    group: 'security',
+    order: 14,
+    title: 'Rotating the signing key: a kid, a JWKS and a grace period',
+    question: 'How do you replace the key that signs every token, without logging everybody out and without trusting a retired key for ever?',
+    status: 'built',
+    slice: 'I8',
+    where: [
+      'identity-service/src/main/java/io/appfleet/identity/auth/AccessTokenIssuer.java (publicJwk, the kid in the header)',
+      'identity-service/src/main/java/io/appfleet/identity/auth/JwkSetService.java and JwksController.java (GET /.well-known/jwks.json)',
+      'identity-service/src/main/java/io/appfleet/identity/config/JwksProperties.java (retired-keys, retire-grace)',
+      'common-security/src/main/java/io/appfleet/security/JwksJwtDecoders.java and JwtProperties.java (jwks-uri, cache, outage tolerance)',
+      'identity-service/src/test/java/io/appfleet/identity/JwkSetServiceTest.java, JwksEndpointTest.java, JwksEndToEndTest.java; common-security JwksDecoderTest.java',
+      'docs/design/identity-service/identity-i8-jwks-rotation-and-definition-of-done.md'
+    ],
+    idea: [
+      'Until I8 every verifier held one static public key, so replacing the signing key meant replacing it everywhere at the same moment. Now each token names its key in the header (kid, the RFC 7638 thumbprint of the public key, so the label can never name a different key than the one it labels), and identity-service publishes the public keys that may verify at an open URL, /.well-known/jwks.json. A verifier takes its key set from its own configuration (jwks-uri) and picks the key by kid. It never follows a jku, jwk or x5u header from a token, because that would let a token point a verifier at a key of its own.',
+      'Rotation is a configuration change and a restart: the new private key goes in jwt.private-key-location, the old public key goes in jwks.retired-keys with the moment it retired. For the retire-grace after that moment the set holds both keys, so tokens signed by the old key keep validating; after it, the old kid is gone and a token it signed is refused by every verifier, whatever its signature says. The grace may not be shorter than the token life plus the clock skew (15 minutes plus 1): identity-service refuses to start with 10 minutes and says why.',
+      'The verifier does not call identity-service on the request path. It caches the key set (5 minutes), refetches at most once per 30 seconds when it meets a kid it does not know, and keeps serving the last good set for an hour if identity-service is down. A test stops identity-service and still authorises. The honest limit: the token of a key removed by a compromise stays valid on a verifier until its cache expires, so the cache life is the reaction time, and the outage tolerance covers an outage, not a compromise.',
+      'The same step records the cost of a password hash on this machine (BCrypt, one hash, median of 3): cost 10 is 40 ms, cost 12 (production) 166 ms, cost 14 668 ms. Each +2 multiplies the time by about 4, so identity-service is CPU-bound by design.'
+    ],
+    terms: [
+      ['kid', 'The key id in a token header. Here the thumbprint of the public key, so it is derived, not configured.'],
+      ['JWKS', 'A JSON document with the public keys a verifier may use. Public members only: a test fails if a private one appears.'],
+      ['Retire grace', 'How long a retired public key stays in the set after it stopped signing. At least token life plus clock skew.'],
+      ['Outage tolerance', 'A verifier keeps the last good key set for an hour when the issuer cannot be reached, so a restart of identity-service logs nobody out.']
+    ],
+    tryIt: [
+      'Press "Token from the old key", then "Rotate" and "Check the old token": still accepted, the old kid is in the set.',
+      'Press "Wait 10 minutes", then "Wait 10 minutes" again: past the 16 minute grace the old kid is gone and the same old token is refused.',
+      'Press "Unknown kid": the verifier refetches once; press it twice in a row and the second is not fetched (at most once per 30 seconds).'
+    ],
+    breakIt: 'Publish every retired key for ever. A good token is still accepted, so nothing looks wrong. Measured on 2026-10-07 on a scratch copy of the real tree: 3 tests failed, the grace-boundary unit test, the several-retired-keys unit test, and the end-to-end test at the line that expects a token from the hour-old key to be refused.',
+    say: 'Each token names its signing key by kid (a thumbprint); identity-service publishes the public keys at an open JWKS URL; rotation puts the old public key in a retired list that is published for a grace of at least token life plus skew, and not a moment longer; verifiers cache the set, refetch rarely, tolerate an outage for an hour, and never follow a key URL from a token.',
+    quiz: {
+      q: 'Why must retire-grace be at least token life plus clock skew?',
+      options: [
+        'So the old key can sign new tokens for a while',
+        'So a token signed just before the rotation is still verifiable until it expires; a shorter grace would reject valid tokens',
+        'Because the JWKS endpoint is cached for 16 minutes by browsers',
+        'To make the BCrypt cost match the token life'
+      ],
+      answer: 1,
+      why: 'A token issued a moment before the rotation lives 15 minutes, and a verifier may be a minute off. If the old key left the set sooner, those still-valid tokens would fail, so identity-service refuses to start with a shorter grace.'
+    },
+    mount(el) {
+      const GRACE = 16, TOKEN = 15;
+      let now, rotatedAt, oldToken, fetchedAt, last;
+      const verdict = ui.verdict();
+      const rSet = ui.readout('Published kids');
+      const rClock = ui.readout('Minutes since rotation');
+      const rFetch = ui.readout('Key set fetches');
+      let fetches;
+
+      function reset() { now = 0; rotatedAt = null; oldToken = false; fetchedAt = null; fetches = 0; last = null; render(); }
+      function published() { return rotatedAt === null ? ['K1'] : (now - rotatedAt < GRACE ? ['K2', 'K1'] : ['K2']); }
+      function say(tone, text) { last = { tone, text }; render(); }
+
+      function issueOld() {
+        if (rotatedAt !== null) return say('busy', 'The old key no longer signs: after the rotation a new token carries kid K2.');
+        oldToken = true;
+        say('ok', 'A token with kid K1 (the key that signs today). It lives ' + TOKEN + ' minutes.');
+      }
+      function rotate() {
+        if (rotatedAt !== null) return say('busy', 'Already rotated. Reset to try again.');
+        rotatedAt = now;
+        say('ok', 'K2 signs from now on; K1 is in jwks.retired-keys and stays published for ' + GRACE + ' minutes.');
+      }
+      function wait() { now += 10; say('busy', '10 minutes pass.'); }
+      function checkOld() {
+        if (!oldToken) return say('busy', 'No token from the old key yet. Press "Token from the old key" first.');
+        if (published().includes('K1')) return say('ok', 'Accepted: kid K1 is in the published set, the signature checks. No call to identity-service was needed if the set is cached.');
+        say('bad', 'Refused: kid K1 is not in the set any more, so the signature is never tried. (The token itself expired long before: ' + TOKEN + ' minutes against a grace of ' + GRACE + '.)');
+      }
+      function unknownKid() {
+        if (fetchedAt !== null && now - fetchedAt < 0.5) return say('ok', 'Not fetched again: at most one refetch per 30 seconds, so a flood of garbage kids cannot turn the verifier into a client of identity-service.');
+        fetchedAt = now; fetches++;
+        say('ok', 'One refetch of the key set, then the token is refused: the kid is still unknown.');
+      }
+      function render() {
+        rSet.set(published().join(', '));
+        rClock.set(rotatedAt === null ? '-' : String(now - rotatedAt));
+        rFetch.set(String(fetches));
+        verdict.set(last ? last.tone : 'busy', last ? last.text : 'One key (K1) signs and is published. Press "Token from the old key", then "Rotate".');
+      }
+      el.append(
+        h('div', { class: 'sim-controls' },
+          ui.button('Token from the old key', issueOld), ui.button('Rotate', rotate), ui.button('Wait 10 minutes', wait),
+          ui.button('Check the old token', checkOld), ui.button('Unknown kid', unknownKid), ui.button('Reset', reset, { variant: 'quiet' })),
+        h('div', { class: 'sim-stage' }, h('div', { class: 'stack' })),
+        h('div', { class: 'readouts' }, [rSet, rClock, rFetch].map(r => r.el)),
+        note('Illustrative model of the grace window. The behaviour is measured by JwkSetServiceTest (the boundary), JwksEndToEndTest (a token of an hour-old retired key is refused, and a good one still validates with identity-service stopped) and, by hand, on the real jar: after rotation the set listed K2 then K1; with retired-at one hour ago it listed only K2; a retire-grace of 10 minutes stopped the start.'),
+        verdict.el
+      );
+      reset();
+    }
+  });
+
 })();

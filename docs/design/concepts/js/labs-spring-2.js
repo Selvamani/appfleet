@@ -1768,5 +1768,102 @@
     }
   });
 
+  AF.register({
+    id: 'sp-repository-interfaces',
+    group: 'spring',
+    order: 16,
+    title: 'Repository, CrudRepository, JpaRepository: what each one lets you call',
+    question: 'Why does identity-service write UserRepository by hand on top of Repository when control-api extends JpaRepository everywhere?',
+    status: 'built',
+    slice: 'I1',
+    where: [
+      'identity-service/src/main/java/io/appfleet/identity/user/UserRepository.java (extends Repository, four methods)',
+      'identity-service/src/test/java/io/appfleet/identity/UserRepositoryTest.java (userRepository_hasNoDeleteMethod)',
+      'control-api/src/main/java/io/appfleet/control/**/*Repository.java (all twelve extend JpaRepository)',
+      'docs/design/identity-service/identity-i1-domain-and-schema.md (decision 4)'
+    ],
+    idea: [
+      'A Spring Data repository interface is a list of methods you are allowed to call. Repository is the empty root. CrudRepository adds save, findById, count and the whole delete family. JpaRepository adds flush, saveAndFlush, getReferenceById and the batch deletes on top of that. Whatever the interface inherits, every caller can use, and the compiler does not tell a harmless call from a dangerous one.',
+      'Measured on 2026-10-06 by reflection on spring-data 4.1.0 (the version Boot 4.1 uses; distinct method names, overloads counted once): Repository has 0 methods, CrudRepository 11, ListCrudRepository 11, PagingAndSortingRepository 1, JpaRepository 23. Two surprises: PagingAndSortingRepository extends only Repository, so it has findAll and nothing else, no save and no delete; and JpaRepository still carries the deprecated getById, getOne and deleteInBatch.',
+      'Appfleet uses both styles. control-api: all twelve repositories extend JpaRepository (counted with grep), including the append-only audit repository, where deleteAll() compiles. identity-service: UserRepository extends Repository and lists save, findById, findByEmail and existsByEmail, because users are deactivated and never deleted. Measured by mutation: with UserRepository changed to extend CrudRepository, userRepository_hasNoDeleteMethod went red; with Repository it is green. The cost of the minimal style is that you write the signatures yourself.'
+    ],
+    terms: [
+      ['Repository', 'The marker root. It declares no methods, so a sub-interface lists exactly what it needs.'],
+      ['CrudRepository', 'save, findById, existsById, count, findAll, and the delete family (delete, deleteById, deleteAll and more).'],
+      ['JpaRepository', 'CrudRepository plus paging and sorting, query by example, flush, saveAndFlush, getReferenceById and the batch deletes. JPA only.'],
+      ['PagingAndSortingRepository', 'findAll with a Sort or a Pageable. It does not extend CrudRepository.'],
+      ['Least privilege for a repository', 'Expose only the operations the aggregate may have. A method that is not there cannot be called by mistake.']
+    ],
+    tryIt: [
+      'Choose "Repository": an empty list. Then choose "UserRepository (identity-service)": four methods and no delete.',
+      'Choose "CrudRepository", then "JpaRepository": watch the delete family and findAll appear, and flush and getReferenceById arrive only with JpaRepository.',
+      'Choose "PagingAndSortingRepository": it has no save and no delete, because it does not extend CrudRepository.'
+    ],
+    breakIt: 'Change UserRepository to extend CrudRepository. It still compiles and every other test stays green; only userRepository_hasNoDeleteMethod notices. Measured on a scratch copy on 2026-10-06.',
+    say: 'A repository interface is the list of operations an aggregate allows, so for things that must never be deleted I extend the bare Repository and list the methods myself, and I pin that with a test; I use JpaRepository where the full toolkit is harmless, which is what control-api does today.',
+    quiz: {
+      q: 'Audit rows must never be deleted through the repository. Which parent interface leaves every delete method out while still letting you declare save yourself?',
+      options: [
+        'JpaRepository, because it has deleteAllInBatch only',
+        'CrudRepository, because delete is optional in it',
+        'Repository, then declare only the methods you need',
+        'ListCrudRepository, because it returns lists'
+      ],
+      answer: 2,
+      why: 'Repository has 0 methods (measured). CrudRepository, ListCrudRepository and JpaRepository all carry delete, deleteById and deleteAll. PagingAndSortingRepository has no delete either, but it also has no save.'
+    },
+    mount(el) {
+      const SETS = {
+        none: { label: 'Repository', parent: '(none)', methods: [] },
+        user: { label: 'UserRepository (identity-service)', parent: 'Repository', methods: ['existsByEmail', 'findByEmail', 'findById', 'save'], own: true },
+        paging: { label: 'PagingAndSortingRepository', parent: 'Repository', methods: ['findAll'] },
+        crud: { label: 'CrudRepository', parent: 'Repository',
+          methods: ['count', 'delete', 'deleteAll', 'deleteAllById', 'deleteById', 'existsById', 'findAll', 'findAllById', 'findById', 'save', 'saveAll'] },
+        jpa: { label: 'JpaRepository', parent: 'ListCrudRepository, ListPagingAndSortingRepository, QueryByExampleExecutor',
+          methods: ['count', 'delete', 'deleteAll', 'deleteAllById', 'deleteAllByIdInBatch', 'deleteAllInBatch', 'deleteById', 'deleteInBatch',
+            'exists', 'existsById', 'findAll', 'findAllById', 'findBy', 'findById', 'findOne', 'flush', 'getById', 'getOne', 'getReferenceById',
+            'save', 'saveAll', 'saveAllAndFlush', 'saveAndFlush'] }
+      };
+
+      const box = h('div', { class: 'stack' });
+      const verdict = ui.verdict();
+      const rCount = ui.readout('Methods');
+      const rDelete = ui.readout('Delete methods');
+      const rSave = ui.readout('Has save');
+      const rFlush = ui.readout('flush / getReferenceById');
+      const which = ui.choice('Interface', Object.keys(SETS).map(k => ({ value: k, label: SETS[k].label })), 'none', render);
+
+      function render() {
+        const set = SETS[which.get()];
+        const names = set.methods;
+        const deletes = names.filter(n => n.indexOf('delete') === 0);
+        const hasSave = names.indexOf('save') >= 0;
+        const hasJpa = names.indexOf('flush') >= 0;
+        AF.clear(box);
+        if (!names.length) box.append(label('no methods'));
+        names.forEach(n => box.append(ui.token(n, n.indexOf('delete') === 0 ? 'warn' : (n === 'flush' || n === 'getReferenceById') ? 'busy' : 'ok')));
+        rCount.set(names.length);
+        rDelete.set(deletes.length, deletes.length ? 'bad' : 'ok');
+        rSave.set(hasSave ? 'yes' : 'no', hasSave ? null : 'busy');
+        rFlush.set(hasJpa ? 'yes' : 'no');
+        const measured = set.own
+          ? 'Appfleet\'s own interface; its no-delete rule is pinned by a test, mutation measured 2026-10-06.'
+          : 'Method names measured 2026-10-06 by reflection on spring-data 4.1.0 (overloads counted once).';
+        if (!deletes.length && hasSave) verdict.set('ok', 'Save is there, delete is not: a caller cannot hard-delete through it. ' + measured);
+        else if (!deletes.length) verdict.set('busy', 'No delete, but also no save: ' + (names.length ? 'it only reads.' : 'it is empty, you add what you need.') + ' ' + measured);
+        else verdict.set('bad', plural(deletes.length, 'delete method') + ' can be called by anyone holding this interface. ' + measured);
+      }
+
+      el.append(
+        controls(which.el),
+        stage(h('div', { class: 'sim-cols' }, ui.panel('Methods the caller gets', box))),
+        readouts(rCount, rDelete, rSave, rFlush),
+        note('Parents shown by reflection: CrudRepository extends Repository; JpaRepository extends ListCrudRepository, ListPagingAndSortingRepository and QueryByExampleExecutor. ListCrudRepository has the same method names as CrudRepository (it returns lists instead of iterables) and is left out of the picker. control-api: all twelve repositories extend JpaRepository (counted with grep).'),
+        verdict.el
+      );
+      render();
+    }
+  });
+
   // @@LESSONS@@
 })();

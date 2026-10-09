@@ -22,7 +22,7 @@ function step(list: HTMLElement, label: string): HTMLElement {
 
 describe('DeploymentPage', () => {
   it('shows a DEPLOYING deployment as live, with Roll back disabled and the reason', async () => {
-    await renderApp(`/deployments/${DEPLOYING}`);
+    await renderApp(`/deployments/${DEPLOYING}`, { role: 'OPERATOR' });
     expect(await screen.findByRole('heading', { level: 1, name: 'billing-api 2.4.0 to staging DEPLOYING' })).toBeInTheDocument();
     expect(screen.getByText('Live: updates every 2 s')).toBeInTheDocument();
 
@@ -42,7 +42,7 @@ describe('DeploymentPage', () => {
   });
 
   it('rolls back a HEALTHY deployment after an inline confirmation, then blocks a second request', async () => {
-    const { user } = await renderApp(`/deployments/${HEALTHY}`);
+    const { user } = await renderApp(`/deployments/${HEALTHY}`, { role: 'OPERATOR' });
     expect(await screen.findByText('Settled: checks every 30 s')).toBeInTheDocument();
     const rollBack = await screen.findByRole('button', { name: 'Roll back' });
     await waitFor(() => expect(rollBack).toBeEnabled());
@@ -72,7 +72,7 @@ describe('DeploymentPage', () => {
   });
 
   it('shows the conflict with a Refresh action when someone else rolled back first', async () => {
-    const { user } = await renderApp(`/deployments/${DEGRADED}`);
+    const { user } = await renderApp(`/deployments/${DEGRADED}`, { role: 'OPERATOR' });
     const rollBack = await screen.findByRole('button', { name: 'Roll back' });
     await waitFor(() => expect(rollBack).toBeEnabled());
 

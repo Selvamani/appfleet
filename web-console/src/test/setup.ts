@@ -1,6 +1,8 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, beforeEach } from 'vitest';
+import { configureAuth } from '../api/http';
+import { endSession } from '../auth/session';
 import { resetDb } from '../mocks/db';
 import { setDevRole } from '../mocks/devRole';
 import { server } from './server';
@@ -21,6 +23,8 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  endSession();
+  configureAuth(undefined);
   server.resetHandlers();
 });
 afterAll(() => server.close());

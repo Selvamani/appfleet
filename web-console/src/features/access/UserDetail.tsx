@@ -1,36 +1,38 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { deactivateUser, getUser } from '../../api/identity';
+import { deactivateUser, getUser, listLoginAudit } from '../../api/identity';
 import { qk } from '../../api/keys';
+import type { Grant } from '../../api/types';
 import { usePermissions } from '../../auth/usePermissions';
-import { Card, Columns, DetailList, ErrorNotice, Loading, Mono, Muted, Notice, Stack, StatusChip } from '../../components';
+import { Card, Columns, DetailList, ErrorNotice, InlineConfirm, Loading, Mono, Muted, Notice, Stack, StatusChip } from '../../components';
 import { formatWhen } from '../../lib/format';
-import { InlineConfirm } from '../../components';
-import { useApplyUser } from './accessQueries';
+import { who } from './accessQueries';
 import { GrantsCard } from './GrantsCard';
 import s from './AccessPage.module.css';
 
 /**
- * One user: status, sign-in facts, deactivate, and their grants. Mount with key={userId} so notices and
- * form state never carry over from the previous user.
+ * One user: status, what the sign-in audit says about them, deactivate, and their grants. Mount with key={userId} so
+ * notices and form state never carry over from the previous user.
  */
-export function UserDetail({ userId, focusOnLoad, onFocused }: {
+export function UserDetail({ userId, grants, focusOnLoad, onFocused }: {
   userId: string;
+  grants: Grant[];
   /** Move focus to the user's heading once it shows, after a pick in the list. */
   focusOnLoad: boolean;
   onFocused: () => void;
 }) {
   const { me } = usePermissions();
-  const applyUser = useApplyUser();
   const user = useQuery({ queryKey: qk.user(userId), queryFn: () => getUser(userId) });
+  // The newest sign-in attempts (platform administrators only). Counted here, not stored: it is the audit's own answer.
+  const recent = useQuery({ queryKey: [...qk.loginAudit(), 'recent'], queryFn: () => listLoginAudit(undefined, 200), staleTime: 30_000 });
   const [deactivatedNow, setDeactivatedNow] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   const deactivate = useMutation({
     mutationFn: () => deactivateUser(userId),
-    onSuccess: updated => {
+    onSuccess: () => {
       setDeactivatedNow(true);
-      return applyUser(updated);
+      void user.refetch();
     },
   });
 
@@ -53,6 +55,9 @@ export function UserDetail({ userId, focusOnLoad, onFocused }: {
   const u = user.data;
   const isDeactivated = u.status === 'DEACTIVATED';
   const isMe = u.id === me?.id;
+  const rows = recent.data?.items.filter(r => r.userId === u.id) ?? [];
+  const lastSignIn = rows.find(r => r.event === 'LOGIN' && r.outcome === 'SUCCESS');
+  const failures = rows.filter(r => r.event === 'LOGIN' && r.outcome !== 'SUCCESS').length;
 
   return (
     <Columns layout="pair" ratio="minmax(0, 0.85fr) minmax(0, 1.4fr)">
@@ -60,14 +65,14 @@ export function UserDetail({ userId, focusOnLoad, onFocused }: {
         <Stack>
           <div className={s.detailHead}>
             <h2 className={s.detailTitle} id="user-title" ref={headingRef} tabIndex={-1}>
-              {u.username}
+              {who(u)}
               {isDeactivated ? <StatusChip status="DEACTIVATED" label="Deactivated" /> : <StatusChip status="ACTIVE" label="Active" />}
             </h2>
             {!isMe && (
               <InlineConfirm
                 trigger="Deactivate"
-                triggerLabel={`Deactivate ${u.username}`}
-                prompt={`Deactivate ${u.username}?`}
+                triggerLabel={`Deactivate ${who(u)}`}
+                prompt={`Deactivate ${who(u)}?`}
                 confirmLabel="Deactivate"
                 variant="danger"
                 disabled={isDeactivated}
@@ -77,22 +82,24 @@ export function UserDetail({ userId, focusOnLoad, onFocused }: {
           </div>
           {deactivatedNow && (
             <Notice tone="success">
-              {u.username} is deactivated. Their tokens stop working within 5 minutes, and they cannot sign in again.
+              {who(u)} is deactivated. Every session of theirs ended at once, and they cannot sign in again.
             </Notice>
           )}
-          {deactivate.isError && <ErrorNotice error={deactivate.error} context={`Could not deactivate ${u.username}.`} />}
+          {deactivate.isError && <ErrorNotice error={deactivate.error} context={`Could not deactivate ${who(u)}.`} />}
           <DetailList
             items={[
-              ['Last sign-in', u.lastSignIn ? <>{formatWhen(u.lastSignIn.at)} UTC from <Mono>{u.lastSignIn.ip}</Mono></> : 'Never signed in'],
-              ['Sign-in security', u.securityNote],
-              ['Failed sign-ins', u.failedSignIns],
+              ['Email', <Mono key="email">{u.email}</Mono>],
+              ['Created', formatWhen(u.createdAt)],
+              ...(u.deactivatedAt ? [['Deactivated', formatWhen(u.deactivatedAt)] as [string, string]] : []),
+              ['Last sign-in', recent.isSuccess ? (lastSignIn ? <>{formatWhen(lastSignIn.occurredAt)} UTC from <Mono>{lastSignIn.ip ?? 'unknown'}</Mono></> : 'Not in the newest 200 audit rows') : '...'],
+              ['Failed sign-ins', recent.isSuccess ? `${failures} in the newest 200 audit rows` : '...'],
             ]}
           />
           {isMe && <Muted as="p">This is you. You cannot deactivate your own account.</Muted>}
           <Muted as="p">Users are deactivated, never deleted, so their audit history stays complete.</Muted>
         </Stack>
       </Card>
-      <GrantsCard user={u} />
+      <GrantsCard user={u} grants={grants} />
     </Columns>
   );
 }

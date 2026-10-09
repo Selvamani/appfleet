@@ -2,11 +2,11 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 import { getApplication } from '../../api/control';
-import { listTeams } from '../../api/identity';
 import { qk } from '../../api/keys';
 import { getWhatRunsWhere } from '../../api/query';
 import type { ApplicationResponse, ReleaseResponse } from '../../api/types';
 import { usePermissions } from '../../auth/usePermissions';
+import { useTeams } from '../../auth/useTeams';
 import {
   Button, ButtonLink, Columns, ErrorNotice, Freshness, Loading, Notice, PageHeader,
 } from '../../components';
@@ -42,8 +42,8 @@ export function ApplicationPage() {
 
 function ApplicationDetail({ app }: { app: ApplicationResponse }) {
   const { me, can } = usePermissions();
-  const teams = useQuery({ queryKey: qk.teams(), queryFn: listTeams, staleTime: 10 * 60_000 });
-  const teamName = teams.data?.find(t => t.id === app.ownerTeamId)?.name ?? 'the owner team';
+  const { nameOf } = useTeams();
+  const teamName = nameOf(app.ownerTeamId);
 
   const [formOpen, setFormOpen] = useState(false);
   const [registered, setRegistered] = useState<ReleaseResponse | null>(null);

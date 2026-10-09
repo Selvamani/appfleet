@@ -6,13 +6,15 @@ spring:
     username: ${POSTGRES_USER:appfleet}
     password: ${POSTGRES_PASSWORD:changeme}
   jpa:
+    open-in-view: false
     hibernate:
       ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: identity
   flyway:
     schemas: identity
     default-schema: identity
-  kafka:
-    bootstrap-servers: ${KAFKA_HOST:localhost}:${KAFKA_PORT:9092}
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -26,3 +28,27 @@ management:
     web:
       exposure:
         include: health,info,metrics
+
+appfleet:
+  identity:
+    jwt:
+      # no default: a missing key must stop startup, not the first login
+      private-key-location: ${JWT_PRIVATE_KEY_LOCATION}
+      issuer: appfleet-identity
+      audience: appfleet
+      access-token-ttl: 15m
+    password:
+      bcrypt-cost: 12
+    refresh:
+      token-ttl: 7d
+      family-max-lifetime: 30d
+    lockout:
+      max-failures: 5
+      window: 15m
+  security:
+    jwt:
+      # the validating side (common-security): no default for the key, a missing one must stop startup
+      public-key-location: ${JWT_PUBLIC_KEY_LOCATION}
+      issuer: appfleet-identity
+      denylist:
+        enabled: true

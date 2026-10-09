@@ -37,7 +37,7 @@ describe('DashboardPage', () => {
 
   it('shows every team to an operator', async () => {
     await renderApp('/', { role: 'OPERATOR' });
-    expect(await screen.findByText('Deployments and versions across all teams.')).toBeInTheDocument();
+    expect(await screen.findByText('Deployments and versions across your teams.')).toBeInTheDocument();
     expect(await screen.findByText('DEPLOYING 2, PENDING 1')).toBeInTheDocument();
     expect(screen.getByText('4 of 5')).toBeInTheDocument();
 

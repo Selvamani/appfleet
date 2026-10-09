@@ -3,11 +3,11 @@ import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { getApplication, listEnvironments, listReleases, requestDeployment } from '../../api/control';
 import { isApiError, retryIfInProgress } from '../../api/http';
-import { listTeams } from '../../api/identity';
 import { qk, READ_SIDE } from '../../api/keys';
 import { getWhatRunsWhere } from '../../api/query';
 import type { ApplicationResponse, CreateDeploymentRequest, WhereCell } from '../../api/types';
 import { usePermissions } from '../../auth/usePermissions';
+import { useTeams } from '../../auth/useTeams';
 import {
   Button, ButtonLink, Card, Columns, EmptyState, ErrorNotice, Fieldset, Freshness, LoadMore, Loading, Mono, Notice,
   PageHeader, RadioCard, Row, StatusChip, TextField, ToggleCard,
@@ -59,8 +59,8 @@ function DeployForm({ app }: { app: ApplicationResponse }) {
   const [clientErrors, setClientErrors] = useState<Record<string, string> | null>(null);
   const [writtenAt, setWrittenAt] = useState<string | null>(null);
 
-  const teams = useQuery({ queryKey: qk.teams(), queryFn: listTeams, staleTime: 10 * 60_000 });
-  const teamName = teams.data?.find(t => t.id === app.ownerTeamId)?.name ?? 'the owner team';
+  const { nameOf } = useTeams();
+  const teamName = nameOf(app.ownerTeamId);
   const releases = useCursorList(qk.releases(app.id), cursor => listReleases(app.id, cursor));
   const environments = useQuery({ queryKey: qk.environments(), queryFn: listEnvironments, staleTime: 10 * 60_000 });
   const where = useQuery({

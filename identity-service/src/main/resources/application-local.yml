@@ -1,0 +1,8 @@
+# Local runs only: the dev private key lives with the test fixtures of common-security. Never use it elsewhere.
+appfleet:
+  identity:
+    jwt:
+      private-key-location: file:../common-security/src/test/resources/keys/dev-private.pem
+  security:
+    jwt:
+      public-key-location: file:../common-security/src/test/resources/keys/dev-public.pem

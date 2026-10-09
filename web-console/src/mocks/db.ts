@@ -11,10 +11,10 @@
  */
 import type {
   ApplicationResponse, Attempt, AuditEventRow, CatalogueImage, CorrelationStep, DeadLetter, DeploymentResponse,
-  DeploymentState, DeploymentSummaryRow, EnvironmentResponse, FleetNode, Grant, LoginAuditRow, Me, ProjectionStatus,
-  ReleaseResponse, Role, ServiceAccount, SessionResponse, TaskResponse, Team, TimelineEvent, UserSummary,
+  DeploymentState, DeploymentSummaryRow, EnvironmentResponse, FleetNode, LoginAuditRow, Me, ProjectionStatus,
+  ReleaseResponse, Role, RoleView, ServiceAccount, SessionResponse, TaskResponse, TeamView, TimelineEvent, UserSummary,
 } from '../api/types';
-import { apiMode } from '../api/http';
+import { PLATFORM_TEAM_ID } from '../api/types';
 import { can, type Permission } from '../auth/permissions';
 import { uuidv7 } from '../lib/uuid';
 import { getDevRole } from './devRole';
@@ -73,8 +73,10 @@ export interface IdempotencyEntry {
 
 export interface Db {
   now: () => number;
-  teams: Team[];
+  teams: TeamView[];
   users: UserSummary[];
+  members: DbMember[];
+  roles: RoleView[];
   applications: ApplicationResponse[];
   releases: ReleaseResponse[];
   environments: EnvironmentResponse[];
@@ -106,49 +108,60 @@ export const TEAM_SEARCH = sid(2);
 
 // ---------- roles and the signed-in user ----------
 
-/** Roles as bundles of permission atoms (identity-service data, not code). Hierarchy: each includes the one before. */
-const VIEWER_PERMS: Permission[] = ['application:read', 'deployment:read', 'session:use'];
-const DEPLOYER_PERMS: Permission[] = [...VIEWER_PERMS, 'application:create', 'release:create', 'deployment:create', 'deployment:rollback'];
-const OPERATOR_PERMS: Permission[] = [...DEPLOYER_PERMS, 'fleet:read', 'node:drain', 'task:reclaim', 'dlq:replay', 'projection:rebuild', 'catalog:publish'];
-export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
-  VIEWER: VIEWER_PERMS,
-  DEPLOYER: DEPLOYER_PERMS,
-  OPERATOR: OPERATOR_PERMS,
-  ADMIN: [...OPERATOR_PERMS, 'user:manage', 'audit:read'],
-  AUDITOR: ['audit:read'],
-};
+/** One membership: this user holds this role in this team (identity-service: one role per user per team). */
+export interface DbMember {
+  teamId: string;
+  userId: string;
+  role: Role;
+}
 
-function grantsForDevRole(role: Role, at: string): Grant[] {
-  const g = (teamId: string | null, teamName: string, r: Role): Grant => ({ teamId, teamName, role: r, grantedBy: 'admin.t', grantedAt: at });
+/**
+ * The roles identity-service seeds, with each role's OWN permissions. A role also holds what the roles below it hold
+ * (the role hierarchy, expanded in code when a token is built): VIEWER < DEPLOYER < OPERATOR < ADMIN.
+ */
+export const SEEDED_ROLES: RoleView[] = [
+  { name: 'VIEWER', description: 'Read-only', permissions: ['application:read', 'deployment:read'] },
+  { name: 'DEPLOYER', description: 'Creates applications and deployments', permissions: ['application:create', 'deployment:create'] },
+  { name: 'OPERATOR', description: 'Rolls back and drains nodes', permissions: ['deployment:rollback', 'node:drain'] },
+  { name: 'ADMIN', description: 'Publishes to the catalogue and manages users', permissions: ['catalog:publish', 'user:manage'] },
+];
+const HIERARCHY = ['VIEWER', 'DEPLOYER', 'OPERATOR', 'ADMIN'];
+
+/** The permissions a role grants, including the ones it inherits. A role outside the hierarchy grants only its own. */
+export function permissionsOfRole(role: Role): string[] {
+  const rank = HIERARCHY.indexOf(role);
+  const names = rank < 0 ? [role] : HIERARCHY.slice(0, rank + 1);
+  const out = new Set<string>();
+  for (const name of names) db.roles.find(r => r.name === name)?.permissions.forEach(p => out.add(p));
+  return [...out].sort();
+}
+
+/** What the development role switch gives the signed-in user: roles in teams, the way a real administrator would grant them. */
+function membershipsForDevRole(role: Role): Array<{ teamId: string; role: Role }> {
   switch (role) {
-    case 'VIEWER': return [g(TEAM_PAY, 'Payments', 'VIEWER')];
-    case 'DEPLOYER': return [g(TEAM_PAY, 'Payments', 'DEPLOYER')];
-    case 'OPERATOR': return [g(null, 'All teams', 'OPERATOR')];
-    case 'ADMIN': return [g(null, 'All teams', 'ADMIN')];
-    case 'AUDITOR': return [g(TEAM_PAY, 'Payments', 'VIEWER'), g(TEAM_SEARCH, 'Search', 'VIEWER'), g(null, 'All teams', 'AUDITOR')];
+    case 'VIEWER': return [{ teamId: TEAM_PAY, role: 'VIEWER' }];
+    case 'DEPLOYER': return [{ teamId: TEAM_PAY, role: 'DEPLOYER' }];
+    case 'OPERATOR': return [{ teamId: TEAM_PAY, role: 'OPERATOR' }, { teamId: TEAM_SEARCH, role: 'OPERATOR' }];
+    default: return [{ teamId: TEAM_PAY, role: 'ADMIN' }, { teamId: PLATFORM_TEAM_ID, role: 'ADMIN' }];   // platform administrator
   }
 }
 
-export function permissionsFor(grants: Grant[]): Record<string, string[]> {
+export function permissionsFor(grants: Array<{ teamId: string; role: Role }>): Record<string, string[]> {
   const out: Record<string, Set<string>> = {};
   for (const grant of grants) {
-    const key = grant.teamId ?? '*';
-    out[key] ??= new Set();
-    ROLE_PERMISSIONS[grant.role].forEach(p => out[key]!.add(p));
+    out[grant.teamId] ??= new Set();
+    permissionsOfRole(grant.role).forEach(p => out[grant.teamId]!.add(p));
   }
-  return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, [...v]]));
+  return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, [...v].sort()]));
 }
 
+/** Applies the development role switch to the signed-in user's memberships, and returns who they are now. */
 export function currentMe(): Me {
   const you = db.users.find(u => u.id === ME_ID)!;
-  let grants = grantsForDevRole(getDevRole(), you.grants[0]?.grantedAt ?? iso(db.now() - 200 * DAY));
-  if (apiMode === 'hybrid') {
-    // Live control-api data belongs to teams this simulated identity service has never heard of, and
-    // control-api permits every request until S4. Hold each role on all teams so screens show its actions.
-    grants = [...new Map(grants.map(g => [g.role, { ...g, teamId: null, teamName: 'All teams' }])).values()];
-  }
-  you.grants = grants;
-  return { id: you.id, username: you.username, grants: you.grants, permissions: permissionsFor(you.grants) };
+  db.members = db.members.filter(m => m.userId !== ME_ID);
+  for (const g of membershipsForDevRole(getDevRole())) db.members.push({ ...g, userId: ME_ID });
+  const grants = db.members.filter(m => m.userId === ME_ID).map(m => ({ teamId: m.teamId, teamName: teamName(m.teamId), role: m.role }));
+  return { id: you.id, username: you.email, displayName: you.displayName, grants, permissions: permissionsFor(grants) };
 }
 
 export function allows(permission: Permission, teamId?: string): boolean {
@@ -174,8 +187,14 @@ interface SeedDeployment {
 function seed(now: number): Db {
   const d: Db = {
     now: () => Date.now(),
-    teams: [{ id: TEAM_PAY, name: 'Payments' }, { id: TEAM_SEARCH, name: 'Search' }],
+    teams: [
+      { id: PLATFORM_TEAM_ID, name: 'platform', createdAt: iso(now - 420 * DAY) },
+      { id: TEAM_PAY, name: 'Payments', createdAt: iso(now - 300 * DAY) },
+      { id: TEAM_SEARCH, name: 'Search', createdAt: iso(now - 250 * DAY) },
+    ],
     users: [],
+    members: [],
+    roles: SEEDED_ROLES.map(r => ({ ...r, permissions: [...r.permissions] })),
     applications: [],
     releases: [],
     environments: [],
@@ -196,19 +215,26 @@ function seed(now: number): Db {
   };
   db = d; // helpers such as teamName() read the db being built
 
-  const user = (n: number, username: string, grants: Grant[], last: [number, string] | null, failed: number, note: string, status: 'ACTIVE' | 'DEACTIVATED' = 'ACTIVE'): UserSummary => ({
-    id: sid(n), username, status, grants, lastSignIn: last ? { at: iso(now - last[0]), ip: last[1] } : null, failedSignIns: failed, securityNote: note,
+  const user = (n: number, username: string, displayName: string, daysAgo: number, deactivatedDaysAgo?: number): UserSummary => ({
+    id: sid(n), email: `${username}@appfleet.example`, displayName, status: deactivatedDaysAgo === undefined ? 'ACTIVE' : 'DEACTIVATED',
+    createdAt: iso(now - daysAgo * DAY), deactivatedAt: deactivatedDaysAgo === undefined ? null : iso(now - deactivatedDaysAgo * DAY),
   });
-  const grant = (teamId: string | null, name: string, role: Role, daysAgo: number): Grant => ({ teamId, teamName: name, role, grantedBy: 'admin.t', grantedAt: iso(now - daysAgo * DAY) });
   d.users = [
-    user(10, 'you', [grant(TEAM_PAY, 'Payments', 'DEPLOYER', 213)], [2 * HOUR, '10.2.8.31'], 0, 'No failed sign-ins'),
-    user(11, 'm.okafor', [grant(TEAM_PAY, 'Payments', 'DEPLOYER', 263), grant(TEAM_SEARCH, 'Search', 'VIEWER', 122)], [3 * HOUR, '10.2.4.17'], 3, '3 failed sign-ins this morning; locked for 15 min, then cleared'),
-    user(12, 's.iyer', [grant(TEAM_SEARCH, 'Search', 'DEPLOYER', 224)], [20 * MIN, '10.2.5.40'], 0, 'No failed sign-ins'),
-    user(13, 'p.novak', [grant(null, 'All teams', 'OPERATOR', 332)], [90 * MIN, '10.2.6.12'], 0, 'No failed sign-ins'),
-    user(14, 'audit.k', [grant(TEAM_PAY, 'Payments', 'VIEWER', 87), grant(TEAM_SEARCH, 'Search', 'VIEWER', 87), grant(null, 'All teams', 'AUDITOR', 87)], [2 * DAY, '10.2.9.3'], 0, 'No failed sign-ins'),
-    user(15, 'r.lee', [], [49 * DAY, '10.2.3.8'], 0, 'Deactivated 48 days ago by admin.t', 'DEACTIVATED'),
-    user(16, 'admin.t', [grant(null, 'All teams', 'ADMIN', 400)], [4 * HOUR, '10.2.1.5'], 0, 'No failed sign-ins'),
+    user(10, 'you', 'You', 213),
+    user(11, 'm.okafor', 'M. Okafor', 263),
+    user(12, 's.iyer', 'S. Iyer', 224),
+    user(13, 'p.novak', 'P. Novak', 332),
+    user(14, 'audit.k', 'K. Audit', 87),
+    user(15, 'r.lee', 'R. Lee', 400, 48),
+    user(16, 'admin.t', 'T. Admin', 400),
   ];
+  const member = (userN: number, teamId: string, role: Role) => d.members.push({ teamId, userId: sid(userN), role });
+  member(10, TEAM_PAY, 'DEPLOYER');
+  member(11, TEAM_PAY, 'DEPLOYER'); member(11, TEAM_SEARCH, 'VIEWER');
+  member(12, TEAM_SEARCH, 'DEPLOYER');
+  member(13, TEAM_PAY, 'OPERATOR'); member(13, TEAM_SEARCH, 'OPERATOR');
+  member(14, TEAM_PAY, 'VIEWER'); member(14, TEAM_SEARCH, 'VIEWER');
+  member(16, PLATFORM_TEAM_ID, 'ADMIN'); member(16, TEAM_PAY, 'ADMIN'); member(16, TEAM_SEARCH, 'ADMIN');
 
   const apps: Array<[number, string, string, string]> = [
     [20, 'billing-api', TEAM_PAY, 'Invoices and payment intents API'],
@@ -349,18 +375,35 @@ function seed(now: number): Db {
   }
   d.audit.sort((a, b) => b.at.localeCompare(a.at));
 
+  const key = (n: number, prefix: string, status: 'ACTIVE' | 'REVOKED', daysAgo: number, usedAgo: number | null, revokedDaysAgo?: number) => ({
+    id: sid(n), prefix, status, createdAt: iso(now - daysAgo * DAY),
+    revokedAt: revokedDaysAgo === undefined ? null : iso(now - revokedDaysAgo * DAY), lastUsedAt: usedAgo === null ? null : iso(now - usedAgo),
+  });
   d.serviceAccounts = [
-    { id: sid(90), name: 'node-agent', scopes: ['task:report', 'node:lease'], keyHint: 'ak_…3f9e', createdAt: iso(now - 31 * DAY), lastUsedAt: iso(now - 2 * SEC), rotatedAt: null },
-    { id: sid(91), name: 'task-service', scopes: ['deployment:read', 'task:write'], keyHint: 'ak_…71c2', createdAt: iso(now - 31 * DAY), lastUsedAt: iso(now - 1 * SEC), rotatedAt: null },
-    { id: sid(92), name: 'ci-release-bot', scopes: ['deployment:create on Search'], keyHint: 'ak_…0d58', createdAt: iso(now - 42 * DAY), lastUsedAt: iso(now - 4 * MIN), rotatedAt: null },
+    { id: sid(90), teamId: TEAM_PAY, name: 'node-agent', role: 'OPERATOR', status: 'ACTIVE', createdAt: iso(now - 31 * DAY), disabledAt: null,
+      keys: [key(190, '3f9eKq0Ab_x', 'ACTIVE', 31, 2 * SEC)] },
+    { id: sid(91), teamId: TEAM_PAY, name: 'deploy-bot', role: 'DEPLOYER', status: 'ACTIVE', createdAt: iso(now - 60 * DAY), disabledAt: null,
+      keys: [key(191, '0d58Zr1Qm-L', 'REVOKED', 60, null, 20), key(192, '71c2Hn8Tj_V', 'ACTIVE', 20, 4 * MIN)] },
+    { id: sid(92), teamId: TEAM_SEARCH, name: 'ci-release-bot', role: 'DEPLOYER', status: 'ACTIVE', createdAt: iso(now - 42 * DAY), disabledAt: null,
+      keys: [key(193, 'b7Xw3Lc9Ed_', 'ACTIVE', 42, 9 * MIN)] },
   ];
 
+  const login = (n: number, ago: number, event: LoginAuditRow['event'], outcome: string, who: { email?: string; user?: number; sa?: number },
+    ip: string, ua: string, cid: string): LoginAuditRow => ({
+    id: sid(n), occurredAt: iso(now - ago), event, outcome, email: who.email ?? null, userId: who.user ? sid(who.user) : null,
+    serviceAccountId: who.sa ? sid(who.sa) : null, ip, userAgent: ua, correlationId: cid,
+  });
   d.logins = [
-    { id: sid(400), at: iso(now - 2 * HOUR), username: 'you', outcome: 'SUCCESS', sourceIp: '10.2.8.31', userAgent: 'Firefox 131, Linux', correlationId: 'c-11aa0001' },
-    { id: sid(401), at: iso(now - 3 * HOUR), username: 'm.okafor', outcome: 'SUCCESS', sourceIp: '10.2.4.17', userAgent: 'Chrome 129, macOS', correlationId: 'c-11aa0002' },
-    { id: sid(402), at: iso(now - 6 * HOUR), username: 'm.okafor', outcome: 'FAILED', sourceIp: '203.0.113.24', userAgent: 'curl/8.9', correlationId: 'c-e4c1d7b0' },
-    { id: sid(403), at: iso(now - 6 * HOUR - 46 * SEC), username: 'm.okafor', outcome: 'FAILED', sourceIp: '203.0.113.24', userAgent: 'curl/8.9', correlationId: 'c-a03f6e19' },
-  ];
+    login(400, 2 * HOUR, 'LOGIN', 'SUCCESS', { email: 'you@appfleet.example', user: 10 }, '10.2.8.31', 'Firefox 131, Linux', 'c-11aa0001'),
+    login(401, 3 * HOUR, 'LOGIN', 'SUCCESS', { email: 'm.okafor@appfleet.example', user: 11 }, '10.2.4.17', 'Chrome 129, macOS', 'c-11aa0002'),
+    login(402, 5 * MIN + 2 * HOUR, 'LOGIN', 'LOCKED', { email: 'm.okafor@appfleet.example', user: 11 }, '203.0.113.24', 'curl/8.9', 'c-e4c1d7b1'),
+    login(403, 6 * HOUR, 'LOGIN', 'BAD_CREDENTIALS', { email: 'm.okafor@appfleet.example', user: 11 }, '203.0.113.24', 'curl/8.9', 'c-e4c1d7b0'),
+    login(404, 6 * HOUR + 46 * SEC, 'LOGIN', 'BAD_CREDENTIALS', { email: 'm.okafor@appfleet.example', user: 11 }, '203.0.113.24', 'curl/8.9', 'c-a03f6e19'),
+    login(405, 7 * HOUR, 'LOGIN', 'UNKNOWN_USER', { email: 'root@appfleet.example' }, '198.51.100.7', 'python-requests/2.32', 'c-77de0a31'),
+    login(406, 4 * MIN, 'SERVICE_TOKEN', 'SUCCESS', { sa: 91 }, '10.2.7.3', 'okhttp/4.12', 'c-5a10b0c2'),
+    login(407, 3 * DAY, 'SERVICE_TOKEN', 'INVALID_KEY', { sa: 91 }, '10.2.7.9', 'okhttp/4.12', 'c-5a10b0c3'),
+    login(408, 2 * DAY, 'REFRESH_REUSE', 'REUSED', { user: 12 }, '203.0.113.88', 'Chrome 129, Windows', 'c-9be2c4d0'),
+  ].sort((x, y) => y.occurredAt.localeCompare(x.occurredAt));
   return d;
 }
 

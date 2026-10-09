@@ -9,11 +9,14 @@ function rowWith(table: HTMLElement, text: string): HTMLElement {
   return row;
 }
 
-async function pickUser(user: Awaited<ReturnType<typeof renderApp>>['user'], username: string) {
+async function pickUser(user: Awaited<ReturnType<typeof renderApp>>['user'], displayName: string) {
   const list = await screen.findByRole('list', { name: 'Users' });
-  await user.click(within(list).getByRole('link', { name: new RegExp(`^${username.replace('.', '\\.')}`) }));
-  return screen.findByRole('table', { name: `Grants of ${username}` });
+  await user.click(within(list).getByRole('link', { name: new RegExp(`^${displayName.replace('.', '\\.')}`) }));
+  return screen.findByRole('table', { name: `Grants of ${displayName}` });
 }
+
+/** The card with this title (cards are regions labelled by their title). */
+const card = (name: string) => screen.findByRole('region', { name });
 
 describe('AccessPage', () => {
   it('is not found for an operator', async () => {
@@ -21,104 +24,100 @@ describe('AccessPage', () => {
     expect(await screen.findByRole('heading', { name: 'Page not found' })).toBeInTheDocument();
   });
 
-  it('shows users, the first one selected, and service accounts to an admin', async () => {
+  it('shows users, the first one selected, and service accounts to a platform admin', async () => {
     await renderApp('/access', { role: 'ADMIN' });
     expect(await screen.findByRole('heading', { level: 1, name: 'Access' })).toBeInTheDocument();
     const list = await screen.findByRole('list', { name: 'Users' });
-    expect(within(list).getByRole('link', { name: /^m\.okafor/ })).toHaveTextContent('DEPLOYER on Payments, VIEWER on Search');
-    expect(within(list).getByRole('link', { name: /^r\.lee/ })).toHaveTextContent('Deactivated');
+    // Grants are read from the members of every team, so the summary fills in as the lists arrive.
+    await waitFor(() => expect(within(list).getByRole('link', { name: /^M\. Okafor/ })).toHaveTextContent('DEPLOYER on Payments, VIEWER on Search'));
+    expect(within(list).getByRole('link', { name: /^R\. Lee/ })).toHaveTextContent('Deactivated');
     // No user in the address: the first one ("you") is shown, without a way to deactivate yourself.
-    expect(within(list).getByRole('link', { name: /^you/ })).toHaveAttribute('aria-current', 'true');
-    expect(await screen.findByRole('table', { name: 'Grants of you' })).toBeInTheDocument();
+    expect(within(list).getByRole('link', { name: /^You/ })).toHaveAttribute('aria-current', 'true');
+    expect(await screen.findByRole('table', { name: 'Grants of You' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Deactivate/ })).not.toBeInTheDocument();
-    expect(await screen.findByRole('table', { name: 'Service accounts' })).toBeInTheDocument();
+    expect(await card('Service accounts')).toBeInTheDocument();
   });
 
   it('selects a user by address and keeps the search', async () => {
     const { user, router } = await renderApp('/access?q=ok', { role: 'ADMIN' });
     const list = await screen.findByRole('list', { name: 'Users' });
-    await waitFor(() => expect(within(list).queryByRole('link', { name: /^s\.iyer/ })).not.toBeInTheDocument());
-    await user.click(within(list).getByRole('link', { name: /^m\.okafor/ }));
+    await waitFor(() => expect(within(list).queryByRole('link', { name: /^S\. Iyer/ })).not.toBeInTheDocument());
+    await user.click(within(list).getByRole('link', { name: /^M\. Okafor/ }));
 
     expect(router.state.location.pathname).toBe('/access/users/0192f3a1-0000-7000-8000-00000000000b');
     expect(router.state.location.search).toBe('?q=ok');
-    // A pick moves focus to the user's heading. Query it inside waitFor: with ?q=ok the first match
-    // (m.okafor) is already shown before the click, and the route change remounts that heading.
-    await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: /^m\.okafor/ })).toHaveFocus());
-    expect(within(screen.getByRole('list', { name: 'Users' })).getByRole('link', { name: /^m\.okafor/ })).toHaveAttribute('aria-current', 'true');
+    await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: /^M\. Okafor/ })).toHaveFocus());
+    expect(within(screen.getByRole('list', { name: 'Users' })).getByRole('link', { name: /^M\. Okafor/ })).toHaveAttribute('aria-current', 'true');
   });
 
-  it('revokes a grant after confirming', async () => {
+  it('removes a grant after confirming and says the sessions ended', async () => {
     const { user } = await renderApp('/access', { role: 'ADMIN' });
-    const grants = await pickUser(user, 'm.okafor');
-    await user.click(within(rowWith(grants, 'Search')).getByRole('button', { name: 'Revoke VIEWER on Search' }));
-    await user.click(within(screen.getByRole('group', { name: 'Confirm: Revoke VIEWER on Search' })).getByRole('button', { name: 'Revoke' }));
+    const grants = await pickUser(user, 'M. Okafor');
+    await within(grants).findByText('Search');
+    await user.click(within(rowWith(grants, 'Search')).getByRole('button', { name: 'Remove VIEWER on Search' }));
+    await user.click(within(screen.getByRole('group', { name: 'Confirm: Remove VIEWER on Search' })).getByRole('button', { name: 'Remove' }));
 
-    const done = await screen.findByText('Revoked. It takes effect within 5 minutes, including tokens already issued.');
+    const done = await screen.findByText(/^Removed VIEWER on Search\. Their sessions ended\./);
     // The row and its button are gone, so the outcome takes focus.
     expect(done.closest('[tabindex="-1"]')).toHaveFocus();
-    const after = screen.getByRole('table', { name: 'Grants of m.okafor' });
-    expect(within(after).queryByText('Search')).not.toBeInTheDocument();
+    const after = screen.getByRole('table', { name: 'Grants of M. Okafor' });
+    await waitFor(() => expect(within(after).queryByText('Search')).not.toBeInTheDocument());
     expect(within(after).getByText('Payments')).toBeInTheDocument();
-    // The list summary follows.
-    await waitFor(() => expect(screen.getByRole('link', { name: /^m\.okafor/ })).toHaveTextContent('DEPLOYER on Payments'));
-    expect(screen.getByRole('link', { name: /^m\.okafor/ })).not.toHaveTextContent('VIEWER on Search');
+    await waitFor(() => expect(screen.getByRole('link', { name: /^M\. Okafor/ })).toHaveTextContent('DEPLOYER on Payments'));
+    expect(screen.getByRole('link', { name: /^M\. Okafor/ })).not.toHaveTextContent('VIEWER on Search');
   });
 
   it('adds a grant', async () => {
     const { user } = await renderApp('/access', { role: 'ADMIN' });
-    const grants = await pickUser(user, 's.iyer');
+    const grants = await pickUser(user, 'S. Iyer');
     expect(within(grants).queryByText('Payments')).not.toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText('Team'), 'Payments');
-    await user.selectOptions(screen.getByLabelText('Role'), 'VIEWER');
-    await user.click(screen.getByRole('button', { name: 'Add grant' }));
+    const form = await screen.findByRole('form', { name: 'Add a grant' });
+    await user.selectOptions(within(form).getByLabelText('Team'), 'Payments');
+    await user.selectOptions(within(form).getByLabelText('Role'), 'VIEWER');
+    await user.click(within(form).getByRole('button', { name: 'Add grant' }));
 
-    expect(await screen.findByText('Granted VIEWER on Payments.')).toBeInTheDocument();
-    const row = rowWith(screen.getByRole('table', { name: 'Grants of s.iyer' }), 'Payments');
-    expect(within(row).getByText('VIEWER')).toBeInTheDocument();
+    expect(await screen.findByText('Granted VIEWER on Payments. It shows in their next token.')).toBeInTheDocument();
+    const row = rowWith(await screen.findByRole('table', { name: 'Grants of S. Iyer' }), 'Payments');
+    expect(within(row).getByLabelText('Role of VIEWER on Payments')).toHaveValue('VIEWER');
   });
 
-  it('shows the conflict when the grant already exists', async () => {
+  it('changes a role in one team', async () => {
     const { user } = await renderApp('/access', { role: 'ADMIN' });
-    await pickUser(user, 'm.okafor');
-    await user.selectOptions(screen.getByLabelText('Team'), 'Payments');
-    await user.selectOptions(screen.getByLabelText('Role'), 'DEPLOYER');
-    await user.click(screen.getByRole('button', { name: 'Add grant' }));
+    const grants = await pickUser(user, 'M. Okafor');
+    await user.selectOptions(within(grants).getByLabelText('Role of VIEWER on Search'), 'DEPLOYER');
+    await user.click(within(grants).getByRole('button', { name: 'Change VIEWER on Search to DEPLOYER' }));
 
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('Could not add the grant.');
-    expect(alert).toHaveTextContent('m.okafor already has DEPLOYER on Payments.');
+    expect(await screen.findByText(/^Changed to DEPLOYER on Search\. Their sessions ended\./)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('link', { name: /^M\. Okafor/ })).toHaveTextContent('DEPLOYER on Payments, DEPLOYER on Search'));
   });
 
   it('deactivates a user after confirming', async () => {
     const { user } = await renderApp('/access', { role: 'ADMIN' });
-    await pickUser(user, 'p.novak');
-    await user.click(screen.getByRole('button', { name: 'Deactivate p.novak' }));
-    await user.click(within(screen.getByRole('group', { name: 'Confirm: Deactivate p.novak' })).getByRole('button', { name: 'Deactivate' }));
+    await pickUser(user, 'P. Novak');
+    await user.click(screen.getByRole('button', { name: 'Deactivate P. Novak' }));
+    await user.click(within(screen.getByRole('group', { name: 'Confirm: Deactivate P. Novak' })).getByRole('button', { name: 'Deactivate' }));
 
-    expect(await screen.findByText(/p\.novak is deactivated\./)).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 2, name: /^p\.novak/ })).toHaveTextContent('Deactivated');
-    expect(await screen.findByRole('button', { name: 'Deactivate p.novak' })).toBeDisabled();
+    expect(await screen.findByText(/P\. Novak is deactivated\./)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: /^P\. Novak/ })).toHaveTextContent('Deactivated'));
+    expect(await screen.findByRole('button', { name: 'Deactivate P. Novak' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Add grant' })).toBeDisabled();
   });
 
-  it('rotates a service-account key and shows the new key once', async () => {
+  it('adds a second key to a service account and shows the key once', async () => {
     const { user } = await renderApp('/access', { role: 'ADMIN' });
-    const table = await screen.findByRole('table', { name: 'Service accounts' });
-    await user.click(within(rowWith(table, 'ci-release-bot')).getByRole('button', { name: 'Rotate key for ci-release-bot' }));
-    await user.click(within(screen.getByRole('group', { name: 'Confirm: Rotate key for ci-release-bot' })).getByRole('button', { name: 'Rotate' }));
+    const sa = await card('Service accounts');
+    await within(sa).findByRole('option', { name: 'Search' });
+    await user.selectOptions(within(sa).getByLabelText('Team'), 'Search');
+    await user.click(await within(sa).findByRole('button', { name: 'Add a key to ci-release-bot' }));
+    await user.click(within(screen.getByRole('group', { name: 'Confirm: Add a key to ci-release-bot' })).getByRole('button', { name: 'Add key' }));
 
     const title = await screen.findByText('New key for ci-release-bot');
     await waitFor(() => expect(title.closest('[tabindex="-1"]')).toHaveFocus());
-    expect(screen.getByText(/^ak_live_[0-9a-f]{32}$/)).toBeInTheDocument();
-    expect(screen.getByText(/Copy this key now\. It is not shown again\. The old key keeps working until \d\d:\d\d:\d\d UTC\./)).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'Copy' }));
-    expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
+    expect(screen.getByText(/^afk_[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/)).toBeInTheDocument();
+    expect(screen.getByText(/^Copy this key now\. It is not shown again/)).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Hide key' }));
-    expect(screen.queryByText(/^ak_live_/)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Rotate key for ci-release-bot' })).toHaveFocus();
+    expect(screen.queryByText(/^afk_[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{20,}$/)).not.toBeInTheDocument();
   });
 });

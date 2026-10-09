@@ -347,3 +347,32 @@ Two refinements to sections above:
   - `DeploymentResponse` carries no `requestedBy`, so in hybrid mode the deployment subtitle has no name.
   - The fleet view has no dead-letter count; the audit read has no time-range filter; sign-in history has no `asOf`.
   - Under gap 11's rule, a "latest FAILED next to an older active deployment" cell cannot occur, so that UI path is only covered by a stubbed test.
+
+## 13. Integration with identity-service and control-api (2026-10-07)
+
+The console now speaks the real identity model (one role per user per team, roles as data, the eight real permissions) and
+works against the live identity-service and control-api in hybrid mode. Mock mode mirrors the same shapes and rules, so
+one console serves both.
+
+What changed:
+
+1. Screen-level permissions are answered by the eight real permissions (`REAL` in `auth/permissions.ts`). The audit trail
+   and the user list belong to platform administrators (`user:manage` in the platform team).
+2. New Account screen at `/account`: rename, password change (ends every session, so the console signs out), user id (an
+   administrator needs it to add the user to a team), teams with the permissions in the token.
+3. Access screen rewritten: users with grants (derived from the members of each team), grants per team with role change and
+   removal, teams and members, roles, service accounts per team with keys shown once.
+4. Sign-ins view of the audit trail reads `/api/v1/audit/logins` (event, who, outcome, source IP).
+5. Hybrid mode: with a real sign-in, identity calls pass through to identity-service; without one the simulation answers.
+6. Mock rollback needs OPERATOR, as in control-api.
+
+Verified live (headless Chrome, real jars): sign in, dashboard and fleet gaps shown honestly, Access and Audit against the
+real data, Account, register application, register release, deploy (202, PENDING), the same request again ("already
+accepted", same deployment), deployment page with the PENDING step and the disabled Roll back. 169 tests pass.
+
+Known gaps, all on the backend side:
+
+1. No list endpoints for releases, environments and deployments: the deploy page asks for the release id and environment name.
+2. Team names are visible to platform administrators only; everyone else sees `Team <8 characters of the id>`.
+3. Deployments stay PENDING until task-service and node-agent exist.
+4. Dashboard, history, timeline and fleet need query-service.

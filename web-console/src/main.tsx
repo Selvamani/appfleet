@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './app/App';
+import { initSession } from './auth/session';
 import './styles/tokens.css';
 import './styles/global.css';
 
@@ -18,6 +19,7 @@ async function startMocks() {
 }
 
 startMocks().then(() => {
+  initSession();
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <App />

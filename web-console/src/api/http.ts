@@ -73,6 +73,13 @@ export interface RequestOptions {
   body?: unknown;
   query?: Record<string, string | number | boolean | null | undefined>;
   idempotencyKey?: string;
+  /**
+   * Sent as `Authorization: Bearer <token>` instead of the session's token. The caller owns this token, so a 401 is
+   * not retried: the sign-in screen uses it to show exactly what a service says about a token.
+   */
+  bearer?: string;
+  /** Sends no Authorization header and never refreshes: for the sign-in endpoints themselves. */
+  anonymous?: boolean;
   signal?: AbortSignal;
 }
 
@@ -126,14 +133,41 @@ async function toApiError(res: Response, sentCorrelationId: string): Promise<Api
 }
 
 /**
+ * What the request layer needs from the session, without importing it (the session imports this file).
+ * Installed once at start-up by auth/session.ts; absent in mock mode and in tests that do not sign in.
+ */
+export interface AuthHooks {
+  /** The access token to send, or undefined when nobody is signed in. */
+  token(): string | undefined;
+  /** A new access token after a 401, one refresh at a time; undefined when there is none to be had. */
+  refresh(): Promise<string | undefined>;
+}
+
+let authHooks: AuthHooks | undefined;
+
+export function configureAuth(hooks: AuthHooks | undefined): void {
+  authHooks = hooks;
+}
+
+/**
  * The only function that calls fetch. Sends a fresh X-Correlation-Id on every request and keeps the
  * value the server echoes, so every error can link to its audit trail.
+ *
+ * With a session it also sends the access token, and on a 401 asks the session for a new one and repeats the
+ * request ONCE. A second 401 is the answer.
  */
-export async function requestRaw<T>(path: string, opts: RequestOptions = {}): Promise<ApiResponse<T>> {
+export function requestRaw<T>(path: string, opts: RequestOptions = {}): Promise<ApiResponse<T>> {
+  return send<T>(path, opts, false);
+}
+
+async function send<T>(path: string, opts: RequestOptions, retried: boolean): Promise<ApiResponse<T>> {
   const correlationId = randomKey();
   const headers: Record<string, string> = { Accept: 'application/json, application/problem+json', 'X-Correlation-Id': correlationId };
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
   if (opts.idempotencyKey) headers['Idempotency-Key'] = opts.idempotencyKey;
+  const sessionToken = opts.anonymous || opts.bearer ? undefined : authHooks?.token();
+  const token = opts.bearer ?? sessionToken;
+  if (token) headers.Authorization = `Bearer ${token}`;
 
   // Absolute URL: same origin in the browser, and required by Node's fetch in tests.
   const url = new URL(buildUrl(path, opts.query), globalThis.location?.origin ?? 'http://localhost').toString();
@@ -153,6 +187,10 @@ export async function requestRaw<T>(path: string, opts: RequestOptions = {}): Pr
     });
   }
 
+  if (res.status === 401 && sessionToken && !retried && authHooks) {
+    const fresh = await authHooks.refresh();
+    if (fresh && fresh !== sessionToken) return send<T>(path, opts, true);
+  }
   if (!res.ok) throw await toApiError(res, correlationId);
 
   const echoed = res.headers.get('X-Correlation-Id') ?? correlationId;

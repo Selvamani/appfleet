@@ -3,10 +3,10 @@ import type { Me } from '../api/types';
 import { can, visibleTeams } from './permissions';
 
 const deployerOnPayments: Me = {
-  id: 'u1', username: 'you', grants: [],
+  id: 'u1', username: 'you', displayName: 'x', grants: [],
   permissions: { 'team-pay': ['deployment:read', 'deployment:create'] },
 };
-const operator: Me = { id: 'u2', username: 'op', grants: [], permissions: { '*': ['deployment:read', 'node:drain'] } };
+const operator: Me = { id: 'u2', username: 'op', displayName: 'x', grants: [], permissions: { '*': ['deployment:read', 'node:drain'] } };
 
 describe('can', () => {
   it('allows a permission on the team it was granted for', () => {

@@ -1,12 +1,12 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useId, useRef, useState, type FormEvent, type TextareaHTMLAttributes } from 'react';
 import { useNavigate } from 'react-router';
 import { createApplication } from '../../api/control';
 import { isApiError } from '../../api/http';
-import { listTeams } from '../../api/identity';
 import { qk } from '../../api/keys';
 import type { CreateApplicationRequest } from '../../api/types';
 import { usePermissions } from '../../auth/usePermissions';
+import { useTeams } from '../../auth/useTeams';
 import {
   Button, ButtonLink, Card, Columns, ErrorNotice, Loading, Notice, PageHeader, Row, SelectField, TextField,
 } from '../../components';
@@ -48,7 +48,7 @@ export function NewApplicationPage() {
   const { me, isLoading: permsLoading, can } = usePermissions();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const teams = useQuery({ queryKey: qk.teams(), queryFn: listTeams, staleTime: 10 * 60_000 });
+  const teams = useTeams();
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -65,7 +65,7 @@ export function NewApplicationPage() {
   });
   useFocusFirstInvalid(formRef, create.error);
 
-  const creatable = (teams.data ?? []).filter(t => can('application:create', t.id));
+  const creatable = teams.teams.filter(t => can('application:create', t.id));
   const ownerTeamId = teamChoice || creatable[0]?.id || '';
 
   const fieldErrors = fieldErrorsOf(create.error);
@@ -89,11 +89,11 @@ export function NewApplicationPage() {
     />
   );
 
-  if ((permsLoading && !me) || teams.isPending) {
+  if ((permsLoading && !me) || teams.isLoading) {
     return <>{header}<Loading label="Loading your teams" /></>;
   }
   if (teams.isError) {
-    return <>{header}<ErrorNotice error={teams.error} context="Could not load teams." onRetry={() => void teams.refetch()} /></>;
+    return <>{header}<ErrorNotice error={teams.error} context="Could not load teams." onRetry={teams.refetch} /></>;
   }
   if (creatable.length === 0) {
     return (

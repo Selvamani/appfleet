@@ -22,6 +22,8 @@ export const routes: RouteObject[] = [
       { path: 'applications/:applicationId', lazy: () => import('../features/applications/ApplicationPage').then(m => ({ Component: m.ApplicationPage })) },
       { path: 'applications/:applicationId/deploy', lazy: () => import('../features/deploy/DeployPage').then(m => ({ Component: m.DeployPage })) },
       { path: 'deployments/:deploymentId', lazy: () => import('../features/deployments/DeploymentPage').then(m => ({ Component: m.DeploymentPage })) },
+      { path: 'login', lazy: () => import('../features/login/LoginPage').then(m => ({ Component: m.LoginPage })) },
+      { path: 'account', lazy: () => import('../features/account/AccountPage').then(m => ({ Component: m.AccountPage })) },
       { path: 'sessions', lazy: () => import('../features/sessions/SessionsPage').then(m => ({ Component: m.SessionsPage })) },
       {
         path: 'fleet',

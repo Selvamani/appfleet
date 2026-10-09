@@ -306,68 +306,141 @@ export interface StartSessionResponse {
   endpoint: string | null;
 }
 
-// ---------- identity-service: planned (S4) ----------
+// ---------- identity-service: built (I2 to I8) ----------
+// These mirror the Java records of identity-service exactly (UserDTOs, AdminDTOs, ServiceAccountDTOs, AuditRow).
+// Mock mode answers the same shapes, so one model serves both modes.
 
-/** Roles are data: AUDITOR was added without code changes, as the RBAC spec intends. */
-export type Role = 'VIEWER' | 'DEPLOYER' | 'OPERATOR' | 'ADMIN' | 'AUDITOR';
+/**
+ * Roles are data, not code: identity-service seeds VIEWER, DEPLOYER, OPERATOR and ADMIN and a platform administrator
+ * may add more (POST /roles). The UI never switches on a role name to decide what a user may do; it reads permissions.
+ */
+export type Role = string;
+
+/** The built-in roles, in order of power. Used for the development role switch and as a fallback list. */
+export const BUILT_IN_ROLES = ['VIEWER', 'DEPLOYER', 'OPERATOR', 'ADMIN'] as const;
+
+/** The team whose administrators administer the platform (V6 of identity-service). */
+export const PLATFORM_TEAM_ID = '00000000-0000-7000-8000-000000000001';
 
 export interface Team {
   id: Uuid;
   name: string;
 }
 
-export interface Grant {
-  /** null means every team. */
-  teamId: Uuid | null;
-  teamName: string;
-  role: Role;
-  grantedBy: string;
-  grantedAt: Instant;
+/** GET /api/v1/teams (platform administrators only). */
+export interface TeamView extends Team {
+  createdAt: Instant;
 }
 
+/** One role held in one team. Identity has no grant on "every team": a grant always names its team. */
+export interface Grant {
+  teamId: Uuid;
+  /** Names are not in the token or in /users/me; they are filled in when the console can read the teams list. */
+  teamName: string;
+  role: Role;
+}
+
+/** GET /api/v1/users/me */
+export interface Profile {
+  id: Uuid;
+  email: string;
+  displayName: string;
+  status: UserStatus;
+  createdAt: Instant;
+  teams: Array<{ teamId: Uuid; role: Role }>;
+}
+
+/**
+ * The signed-in user as the console models it: who they are, the teams they hold roles in, and what they may do.
+ * Permissions come from the access token (the `teams` claim): key is a team id.
+ */
 export interface Me {
   id: Uuid;
+  /** The email address: what the user signs in with. */
   username: string;
+  displayName: string;
   grants: Grant[];
-  /** Team-scoped permissions, as carried in the access token: key is a team id, or '*' for every team. */
+  /** Team-scoped permissions, as carried in the access token: key is a team id. */
   permissions: Record<string, string[]>;
 }
 
 export type UserStatus = 'ACTIVE' | 'DEACTIVATED';
 
+/** GET /api/v1/users and /users/{id} (platform administrators only). */
 export interface UserSummary {
   id: Uuid;
-  username: string;
+  email: string;
+  displayName: string;
   status: UserStatus;
-  grants: Grant[];
-  lastSignIn: { at: Instant; ip: string } | null;
-  failedSignIns: number;
-  securityNote: string;
+  createdAt: Instant;
+  deactivatedAt: Instant | null;
 }
 
+/** GET /api/v1/teams/{id}/members */
+export interface MemberView {
+  userId: Uuid;
+  email: string;
+  displayName: string;
+  role: Role;
+}
+
+/** GET /api/v1/roles (platform administrators only): each role's OWN permissions, not the inherited ones. */
+export interface RoleView {
+  name: Role;
+  description: string;
+  permissions: string[];
+}
+
+export type ServiceAccountStatus = 'ACTIVE' | 'DISABLED';
+export type ApiKeyStatus = 'ACTIVE' | 'REVOKED';
+
+export interface ApiKeyView {
+  id: Uuid;
+  /** The public half of the key: enough to tell the keys of an account apart. */
+  prefix: string;
+  status: ApiKeyStatus;
+  createdAt: Instant;
+  revokedAt: Instant | null;
+  lastUsedAt: Instant | null;
+}
+
+/** GET /api/v1/teams/{id}/service-accounts. A machine principal: one team, one role. Never holds a key. */
 export interface ServiceAccount {
   id: Uuid;
+  teamId: Uuid;
   name: string;
-  scopes: string[];
-  keyHint: string;
+  role: Role;
+  status: ServiceAccountStatus;
   createdAt: Instant;
-  lastUsedAt: Instant | null;
-  rotatedAt: Instant | null;
+  disabledAt: Instant | null;
+  keys: ApiKeyView[];
 }
 
-export interface RotatedKey {
-  /** Shown once. */
-  key: string;
-  keyHint: string;
-  oldKeyValidUntil: Instant;
+/** The only response that ever carries a key. It is shown once and cannot be recovered. */
+export interface IssuedKey {
+  keyId: Uuid;
+  prefix: string;
+  apiKey: string;
 }
+
+export interface CreatedServiceAccount {
+  account: ServiceAccount;
+  key: IssuedKey;
+}
+
+/** GET /api/v1/audit/logins (platform administrators only): sign-in attempts, refresh reuse and key exchanges. */
+export type LoginEvent = 'LOGIN' | 'REFRESH_REUSE' | 'SERVICE_TOKEN';
 
 export interface LoginAuditRow {
   id: Uuid;
-  at: Instant;
-  username: string;
-  outcome: 'SUCCESS' | 'FAILED';
-  sourceIp: string;
-  userAgent: string;
-  correlationId: string;
+  occurredAt: Instant;
+  event: LoginEvent;
+  /** SUCCESS, BAD_CREDENTIALS, UNKNOWN_USER, DEACTIVATED, LOCKED, REUSED or INVALID_KEY. */
+  outcome: string;
+  email: string | null;
+  userId: Uuid | null;
+  serviceAccountId: Uuid | null;
+  ip: string | null;
+  userAgent: string | null;
+  correlationId: string | null;
 }

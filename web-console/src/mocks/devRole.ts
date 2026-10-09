@@ -1,10 +1,10 @@
-import type { Role } from '../api/types';
+import { BUILT_IN_ROLES, type Role } from '../api/types';
 
 /**
  * Development-only "preview as" role (plan §8.8). The mock identity service issues a user with this
  * role; the real identity-service (S4) replaces all of this.
  */
-export const DEV_ROLES: Role[] = ['VIEWER', 'DEPLOYER', 'OPERATOR', 'ADMIN', 'AUDITOR'];
+export const DEV_ROLES: Role[] = [...BUILT_IN_ROLES];
 const STORAGE_KEY = 'appfleet.dev.role';
 let memoryRole: Role = 'DEPLOYER';
 

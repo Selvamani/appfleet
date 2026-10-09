@@ -4,6 +4,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { apiMode } from '../api/http';
 import type { Role } from '../api/types';
 import type { Permission } from '../auth/permissions';
+import { signOut, useSession } from '../auth/session';
 import { usePermissions } from '../auth/usePermissions';
 import { DEV_ROLES, getDevRole, setDevRole } from '../mocks/devRole';
 import { cx } from '../lib/cx';
@@ -25,18 +26,27 @@ const NAV: NavItem[] = [
   { to: '/audit', label: 'Audit trail', permission: 'audit:read' },
 ];
 
-const ROLE_LABEL: Record<Role, string> = {
+const ROLE_LABEL: Record<string, string> = {
   VIEWER: 'VIEWER: application developer',
   DEPLOYER: 'DEPLOYER: release manager',
   OPERATOR: 'OPERATOR: platform operator',
   ADMIN: 'ADMIN: security admin',
-  AUDITOR: 'AUDITOR: viewer with audit read',
 };
 
 /** Development-only: switch the signed-in role the mock identity service issues (plan §8.8). */
 function DevBar() {
   const queryClient = useQueryClient();
   const [role, setRole] = useState<Role>(getDevRole);
+  const session = useSession();
+  if (session) {
+    return (
+      <div className={s.devBar} role="region" aria-label="Development controls">
+        <span className={s.devTag}>Development</span>
+        <span>Signed in with the real identity-service: the role switch is off, and permissions come from your access token.</span>
+        <NavLink className={s.devLink} to="/login">Session details</NavLink>
+      </div>
+    );
+  }
   return (
     <div className={s.devBar} role="region" aria-label="Development controls">
       <span className={s.devTag}>Development</span>
@@ -51,17 +61,13 @@ function DevBar() {
             void queryClient.resetQueries();
           }}
         >
-          {DEV_ROLES.map(r => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+          {DEV_ROLES.map(r => <option key={r} value={r}>{ROLE_LABEL[r] ?? r}</option>)}
         </select>
       </label>
+      <NavLink className={s.devLink} to="/login">Sign in (real identity)</NavLink>
       <span>{apiMode === 'hybrid' ? 'Hybrid: control-api calls go to localhost:8081; other services are simulated' : 'Simulated APIs: no backend needed'}</span>
     </div>
   );
-}
-
-function roleSummary(grants: Array<{ role: Role; teamName: string }>): string {
-  if (!grants.length) return 'no roles';
-  return grants.map(g => (g.teamName === 'All teams' ? g.role : `${g.role} on ${g.teamName}`)).join(', ');
 }
 
 export function AppShell() {
@@ -86,7 +92,15 @@ export function AppShell() {
     navigate(`/applications${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ''}`);
   };
 
+  const session = useSession();
+  const queryClient = useQueryClient();
   const showDevBar = import.meta.env.DEV || apiMode === 'mock';
+
+  const onSignOut = async () => {
+    await signOut();
+    await queryClient.resetQueries();
+    navigate('/login');
+  };
 
   return (
     <div className={s.page}>
@@ -114,10 +128,25 @@ export function AppShell() {
               />
             </form>
             <div className={s.who}>
-              <span className={s.pill}>{teams === 'all' ? 'Teams: all' : `Teams: ${me?.grants.filter(g => g.teamId).map(g => g.teamName).join(', ') || 'none'}`}</span>
-              <span className={s.pill}>{me ? `${me.username}, ${roleSummary(me.grants)}` : 'Signing in'}</span>
+              {session ? (
+                <>
+                  <span className={s.pill}>{`Teams: ${Object.keys(session.claims.teams ?? {}).length}`}</span>
+                  <NavLink className={s.pill} to="/account">{session.email}</NavLink>
+                  <button type="button" className={s.signOut} onClick={() => void onSignOut()}>Sign out</button>
+                </>
+              ) : (
+                <>
+                  <span className={s.pill}>{teams === 'all' ? 'Teams: all' : `Teams: ${Object.keys(me?.permissions ?? {}).length}`}</span>
+                  <NavLink className={s.pill} to="/account">{me ? me.displayName : 'Signing in'}</NavLink>
+                </>
+              )}
             </div>
           </div>
+          {apiMode === 'hybrid' && !session && location.pathname !== '/login' && (
+            <p className={s.signInBar} role="status">
+              You are not signed in, so control-api will refuse these calls. <NavLink to="/login">Sign in</NavLink>
+            </p>
+          )}
           <main id="main" ref={mainRef} tabIndex={-1} className={s.main}>
             <Outlet />
           </main>

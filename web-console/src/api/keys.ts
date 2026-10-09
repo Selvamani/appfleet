@@ -6,12 +6,17 @@ import type { AuditFilter, DashboardFilter } from './types';
  */
 export const qk = {
   me: () => ['identity', 'me'] as const,
-  teams: () => ['identity', 'teams'] as const,
-  users: (q?: string) => ['identity', 'users', q ?? ''] as const,
-  /** Prefix of every users list, for invalidation. */
-  allUsers: () => ['identity', 'users'] as const,
+  profile: () => ['identity', 'profile'] as const,
+  /** Teams the console can name; the platform flag is part of the key because the source differs. */
+  teams: (platform = false) => ['identity', 'teams', platform] as const,
+  allTeams: () => ['identity', 'teams'] as const,
+  members: (teamId: string) => ['identity', 'members', teamId] as const,
+  /** Prefix of every members list (a grant changes one team, the grants of a user span all of them). */
+  allMembers: () => ['identity', 'members'] as const,
+  users: () => ['identity', 'users'] as const,
   user: (id: string) => ['identity', 'user', id] as const,
-  serviceAccounts: () => ['identity', 'service-accounts'] as const,
+  roles: () => ['identity', 'roles'] as const,
+  serviceAccounts: (teamId: string) => ['identity', 'service-accounts', teamId] as const,
   loginAudit: () => ['identity', 'login-audit'] as const,
 
   applications: () => ['control', 'applications'] as const,

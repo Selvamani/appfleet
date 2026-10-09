@@ -17,6 +17,17 @@ describe('http', () => {
     expect(seen[0]).not.toBe(seen[1]);
   });
 
+  it('sends a bearer token only when one is given', async () => {
+    const seen: Array<string | null> = [];
+    server.use(http.get('/api/v1/ping', ({ request: r }) => {
+      seen.push(r.headers.get('Authorization'));
+      return HttpResponse.json({ ok: true });
+    }));
+    await request('/api/v1/ping');
+    await request('/api/v1/ping', { bearer: 'abc.def.ghi' });
+    expect(seen).toEqual([null, 'Bearer abc.def.ghi']);
+  });
+
   it('turns a ProblemDetail into an ApiError with the slug as type', async () => {
     server.use(http.post('/api/v1/thing', () => HttpResponse.json({
       type: 'urn:appfleet:problem:conflict', title: 'Conflict', status: 409, detail: 'Already active.', correlationId: 'c-1',

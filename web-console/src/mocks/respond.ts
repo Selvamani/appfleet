@@ -41,6 +41,10 @@ export function problem(
   return new HttpResponse(JSON.stringify(body), { status, headers });
 }
 
+/** 204, as the real services answer a delete or a logout. */
+export const noContent = (request: Request) =>
+  new HttpResponse(null, { status: 204, headers: { 'X-Correlation-Id': correlationOf(request) } });
+
 export const notFound = (request: Request, what: string) =>
   problem(request, 404, 'not-found', 'Not found', `${what} not found.`);
 

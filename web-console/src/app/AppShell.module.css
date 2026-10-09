@@ -81,3 +81,10 @@
   .nav { white-space: nowrap; }
   .content { padding: 1.15rem; }
 }
+
+.devLink { color: var(--dev-ink); font-weight: 600; text-decoration: underline; }
+
+.signOut { border: 1px solid var(--control-border); border-radius: var(--radius-s); background: var(--surface); color: var(--ink); padding: 0.2rem 0.7rem; font: inherit; cursor: pointer; }
+.signOut:hover { background: var(--hover); }
+.signInBar { margin: 0 0 0.9rem; padding: 0.6rem 0.9rem; border: 1px solid var(--info-border); border-radius: var(--radius-s); background: var(--accent-bg); color: var(--accent-ink); }
+.signInBar a { color: var(--accent-ink); font-weight: 600; }

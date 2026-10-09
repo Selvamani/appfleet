@@ -17,6 +17,18 @@ npm run build          # typecheck, then production build in dist/
 
 The yellow development bar switches the signed-in role (VIEWER, DEPLOYER, OPERATOR, ADMIN, AUDITOR). `?as=OPERATOR` in the address does the same. Navigation, actions and visible teams change with the role, because the simulated identity service issues team-scoped permissions the way identity-service will in S4.
 
+## Sign in screen
+
+`/login` (linked from the yellow bar as "Sign in (real identity)") is the one screen wired to the real identity-service: register, sign in, refresh, replay a used refresh token, log out, and call control-api with the access token. It needs hybrid mode and these services running:
+
+```
+docker compose up -d postgres redis
+# identity-service on 8082:  SPRING_PROFILES_ACTIVE=local, run its jar from the identity-service directory
+# control-api on 8081:       SPRING_PROFILES_ACTIVE=local   (add APPFLEET_SECURITY_JWT_DENYLIST_ENABLED=true to see a logged-out token refused)
+npm run dev:hybrid
+```
+
+Signing in there starts a session for the **whole console** (hybrid mode): every request carries the access token, a 401 triggers one refresh and a retry, the permissions behind the navigation come from the token, and the shell shows Sign out. A development build keeps the session in `sessionStorage` across reloads; a production build never stores a token. Design notes, rules and screenshots: `docs/design/ux/web-console-sign-in.md`.
 ## Modes
 
 | Mode | control-api endpoints that exist | Everything else |
